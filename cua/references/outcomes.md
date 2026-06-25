@@ -15,7 +15,45 @@ envelope under `data`:
 }
 ```
 
+`task run`, `task continue`, `task status`, `task result`, and `task answer`
+return the same envelope, plus a `platform` block of cross-system reference ids:
+
+```json
+"platform": {
+  "desktop": "win10-...", "session_id": null, "run_id": "run_...",
+  "context_id": "cua_ctx_...", "trace_id": null
+}
+```
+
+Keep using the semantic ids (`invocation_id` / task id, `context_id`); the
+`platform` ids are only for logs/dashboards and scheduled-task provenance.
+
 The CLI also adds a top-level `next` block with a ready-to-run `command`.
+
+## Platform `resultType` → outcome
+
+The gateway maps the platform run result onto the stable `outcome`:
+
+| platform `resultType` / run status | outcome |
+| --- | --- |
+| `running`, `queued` | `in_progress` |
+| `waiting_user_input`, `blocked` | `needs_input` |
+| `final` | `completed` |
+| `error`, `failed` | `failed` |
+| `cancelled` | `cancelled` |
+
+## Artifacts
+
+When `outcome == completed`, `result.artifacts` lists produced files:
+`{ id, kind, mime_type, size_bytes }`. Download bytes with
+`artifact save --artifact-id <id>`. A `missing: true` artifact has no bytes
+(placeholder only) — report it as unavailable.
+
+## Scheduled execution status
+
+`schedule history` returns `executions[]`, each
+`{ id, status, scheduled_for, started_at, finished_at, run_id, final_text, error }`.
+Read `final_text` / `run_id` to learn what a scheduled run actually did.
 
 ## Transitions
 

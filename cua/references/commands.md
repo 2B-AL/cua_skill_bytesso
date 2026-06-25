@@ -139,3 +139,127 @@ Local-only checks (Python version, cache file, login state). Creates no task.
 ```bash
 python3 scripts/cua.py self-test
 ```
+
+---
+
+# Semantic command surface (resource-aware)
+
+`delegate/watch/answer/cancel/result/observe` remain the simple default. The
+commands below add desktop selection, reusable contexts, artifacts, and
+scheduled tasks. They go through the same gateway (`/v1/**`); the agent never
+touches the platform `/api/**` directly. Every command still prints one JSON
+object. Most accept `--last*` to reuse the most recent id from local cache.
+
+## diagnose
+
+Confirm CUA is reachable and a desktop is bound. Creates no task. Prefer this
+over `delegate`-to-test.
+
+```bash
+python3 scripts/cua.py diagnose
+```
+
+## desktop list
+
+List selectable cloud desktops (`id`, `name`, `ready`). Use when the user wants
+a specific desktop, then pass it to `task run --desktop`.
+
+```bash
+python3 scripts/cua.py desktop list
+```
+
+## task run
+
+Start a new task. Like `delegate`, but can target a desktop and creates a
+reusable context (returned as `data.platform.context_id`).
+
+```bash
+python3 scripts/cua.py task run --objective "<request>" [--desktop <id-or-name>] \
+    [--title "<context title>"] [--disable-ask-user] [--wait-ms 0]
+```
+
+`data` is the task envelope (same shape as the invocation envelope, plus a
+`platform` block with `desktop`, `run_id`, `context_id`, `trace_id`). Drive the
+outcome with `task status` / `task result` / `task answer`, just like watch/answer.
+
+## task continue
+
+Continue work in an existing context (keeps prior session state).
+
+```bash
+python3 scripts/cua.py task continue (--context-id <id> | --last-context) --objective "<next step>" [--disable-ask-user] [--wait-ms 0]
+```
+
+## task status / task result / task answer / task cancel
+
+```bash
+python3 scripts/cua.py task status (--task-id <id> | --last)
+python3 scripts/cua.py task result (--task-id <id> | --last) [--timeout 600]
+python3 scripts/cua.py task answer (--task-id <id> | --last) --answer "<reply>"
+python3 scripts/cua.py task cancel (--task-id <id> | --last)
+```
+
+`task-id` shares the same id space as `invocation_id`, so `--last` works after a
+plain `delegate` too.
+
+## context list / create / add-note / show
+
+```bash
+python3 scripts/cua.py context list
+python3 scripts/cua.py context create [--title "<t>"] [--desktop <id-or-name>]
+python3 scripts/cua.py context add-note (--context-id <id> | --last-context) --text "<background>"
+python3 scripts/cua.py context show (--context-id <id> | --last-context)
+```
+
+`context create` / `add-note` record context without starting a run. Run work
+later with `task continue`.
+
+## timeline show
+
+Full conversation timeline projection for a context (for review/debugging).
+
+```bash
+python3 scripts/cua.py timeline show (--context-id <id> | --last-context)
+```
+
+## artifact list / save
+
+```bash
+python3 scripts/cua.py artifact list (--task-id <id> | --last)
+python3 scripts/cua.py artifact save (--artifact-id <id> | --last) [--output <path>]
+```
+
+`artifact save` writes the file to `--output` (or a temp file named by content
+type) and returns `data.file`, `data.mime_type`, `data.bytes`,
+`data.source_artifact_id`. The bytes are never printed. If the artifact has no
+downloadable content, `data.missing` is `true` with `data.placeholder_text` —
+do NOT claim a file was saved.
+
+## schedule create-once / create-recurring
+
+Use these when the user wants a future or recurring task ("today at 8pm",
+"every day at 9am"). Do NOT run the goal immediately unless the user also asks
+for a one-off now.
+
+```bash
+python3 scripts/cua.py schedule create-once --goal "<goal>" --run-at 2026-06-25T20:00:00Z \
+    [--title "<t>"] [--desktop <id-or-name>]
+python3 scripts/cua.py schedule create-recurring --goal "<goal>" --start-at 2026-06-25T09:00:00Z \
+    --interval-hours 24 [--allowed-start-window-ms <n>] [--title "<t>"] [--desktop <id-or-name>]
+```
+
+Times must be ISO-8601 (`...Z` or `+08:00`). `--interval-hours` minimum is 1.
+To bind to a current context instead of a fresh scheduled one, add
+`--context-mode current --context-id <id>`.
+
+## schedule list / status / history / stop / delete
+
+```bash
+python3 scripts/cua.py schedule list
+python3 scripts/cua.py schedule status (--schedule-id <id> | --last)
+python3 scripts/cua.py schedule history (--schedule-id <id> | --last)
+python3 scripts/cua.py schedule stop (--schedule-id <id> | --last)
+python3 scripts/cua.py schedule delete (--schedule-id <id> | --last)
+```
+
+Read actual run outcomes with `schedule history` after the scheduled time.

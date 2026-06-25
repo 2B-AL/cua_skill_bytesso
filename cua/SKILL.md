@@ -51,6 +51,32 @@ one-time step is login, which the workflow triggers for you. (Advanced override:
 You can always use `--last` instead of `--invocation-id <id>` to act on the most
 recent invocation (e.g. `watch --last`).
 
+## When to leave the simple path (semantic commands)
+
+The workflow above handles ~80% of requests. Switch to a semantic command when
+the user's intent clearly calls for it:
+
+- **Future / recurring** ("today at 8pm", "every morning", "每天/每小时检查",
+  "到点提醒我") → create a **scheduled task**, do NOT delegate now:
+  - one-off: `schedule create-once --goal "<goal>" --run-at <ISO>`
+  - recurring: `schedule create-recurring --goal "<goal>" --start-at <ISO> --interval-hours <n>`
+  - After creating it, do NOT run the goal immediately unless the user also asks
+    for a one-off now. Read results later with `schedule history --schedule-id <id>`.
+- **Pick a desktop** ("用 win10-… 那台桌面") → `desktop list`, then
+  `task run --desktop <id-or-name> --objective "..."`.
+- **Continue / add background** ("继续刚才那个会话", "先补充一点背景") →
+  `context add-note --context-id <id> --text "..."` and/or
+  `task continue --context-id <id> --objective "..."`. Use `task run`/`task
+  continue` (not `delegate`) whenever you need the context to be reusable.
+- **Save a produced file / screenshot / log** ("把结果文件下载下来") →
+  `artifact list --task-id <id>` then `artifact save --artifact-id <id>`.
+- **Inspect the full conversation** → `timeline show --context-id <id>`.
+- **Just check it's working** → `diagnose` (never `delegate` to test).
+
+`task run`/`task continue` drive the same outcome state machine as delegate:
+`task status` / `task result` / `task answer` mirror `watch` / `result` /
+`answer`. The task id shares the invocation id space, so `--last` works across both.
+
 ## Hard rules
 
 - Always go through `scripts/cua.py`. Never hand-build HTTP, MCP, or OAuth calls.
@@ -64,7 +90,12 @@ recent invocation (e.g. `watch --last`).
 - A `GATEWAY_TIMEOUT` / `CUA_BACKEND_UNAVAILABLE` error is transient, NOT a
   failure: the task is still running. Just re-run the same command (`watch --last`
   or `result --last`). Never restart with a new `delegate`.
-- `cancel` only when the user explicitly says to stop.
+- `cancel` (or `task cancel`) only when the user explicitly says to stop.
+- A scheduled task must NOT create, modify, stop, or delete other scheduled
+  tasks. If a goal implies managing schedules, decline or ask the user — the
+  gateway rejects nesting (`SCHEDULE_NESTING_NOT_ALLOWED`).
+- Scheduled-task results come from `schedule history`, never from a live
+  `watch`/`task status`.
 - `ping` is a read-only auth/desktop check; it creates no task. `self-test` runs
   local checks only. Do not delegate just to test setup.
 - Tokens, the user's objective, answers, result text, and screenshot bytes never

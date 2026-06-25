@@ -41,6 +41,32 @@ Error:
 | `GET` | `/v1/desktop/screenshot` | access token | screenshot of the default desktop |
 | `GET` | `/v1/invocations/{id}/desktop/access` | access token | access URL for the invocation's desktop |
 | `GET` | `/v1/invocations/{id}/desktop/screenshot` | access token | screenshot of the invocation's desktop |
+| `GET` | `/v1/diagnostics` | access token | reachability + desktop binding summary |
+| `GET` | `/v1/desktop-options` | access token | selectable desktops (`id`, `name`, `ready`) |
+| `POST` | `/v1/tasks` | access token | start a task (`{objective, desktop?, title?, context_id?, disable_ask_user?, wait_ms?}`) |
+| `GET` | `/v1/tasks/{id}` | access token | task state |
+| `GET` | `/v1/tasks/{id}/result` | access token | authoritative task result |
+| `GET` | `/v1/tasks/{id}/artifacts` | access token | task artifacts |
+| `POST` | `/v1/tasks/{id}/answer` | access token | answer (`{answer, wait_ms}`) |
+| `POST` | `/v1/tasks/{id}/cancel` | access token | cancel |
+| `GET` | `/v1/contexts` | access token | list contexts |
+| `POST` | `/v1/contexts` | access token | create context (`{title?, desktop?}`) |
+| `GET` | `/v1/contexts/{id}` | access token | context summary |
+| `POST` | `/v1/contexts/{id}/notes` | access token | add a note (`{text}`) |
+| `POST` | `/v1/contexts/{id}/tasks` | access token | continue (`{objective, wait_ms}`) |
+| `GET` | `/v1/contexts/{id}/timeline` | access token | conversation timeline |
+| `GET` | `/v1/schedules` | access token | list scheduled tasks |
+| `POST` | `/v1/schedules/once` | access token | one-off (`{goal, run_at, ...}`) |
+| `POST` | `/v1/schedules/recurring` | access token | recurring (`{goal, start_at, interval_hours, ...}`) |
+| `GET` | `/v1/schedules/{id}` | access token | schedule status |
+| `GET` | `/v1/schedules/{id}/history` | access token | executions + results |
+| `POST` | `/v1/schedules/{id}/stop` | access token | stop future triggers |
+| `DELETE` | `/v1/schedules/{id}` | access token | delete schedule |
+| `GET` | `/v1/artifacts/{id}/content` | access token | artifact bytes (base64 in `data`) |
+
+The gateway owns all platform `/api/**` calls (desktops, sessions, runs,
+scheduled-tasks, artifacts) behind these stable semantic routes; the skill never
+touches the platform directly.
 
 ## Token set (device poll / refresh `data`)
 

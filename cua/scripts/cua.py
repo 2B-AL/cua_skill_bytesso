@@ -29,9 +29,11 @@ from cua_util import (
     SkillError,
     emit_error,
     emit_success,
+    ext_for_mime,
     login_retry_command,
     now_epoch,
     script_path,
+    validate_iso8601,
 )
 
 TERMINAL_OUTCOMES = ("completed", "failed", "cancelled")
@@ -232,6 +234,265 @@ def cmd_observe(args, state, session):
     }}
 
 
+# -- semantic commands -----------------------------------------------------
+
+
+def cmd_diagnose(args, state, session):
+    base_url = resolve_base_url(args, state)
+    data = cua_auth.authorized_call(state, base_url, "GET", "/v1/diagnostics", retries=IDEMPOTENT_RETRIES)
+    return {"data": data}
+
+
+def cmd_desktop_list(args, state, session):
+    base_url = resolve_base_url(args, state)
+    data = cua_auth.authorized_call(state, base_url, "GET", "/v1/desktop-options", retries=IDEMPOTENT_RETRIES)
+    return {"data": data}
+
+
+def cmd_task_run(args, state, session):
+    base_url = resolve_base_url(args, state)
+    body = {"objective": args.objective, "wait_ms": args.wait_ms}
+    if args.desktop:
+        body["desktop"] = args.desktop
+    if args.title:
+        body["title"] = args.title
+    if args.disable_ask_user:
+        body["disable_ask_user"] = True
+    envelope = cua_auth.authorized_call(
+        state, base_url, "POST", "/v1/tasks", body=body, timeout=_call_timeout(args.wait_ms)
+    )
+    return _task_result("task run", envelope, session)
+
+
+def cmd_task_continue(args, state, session):
+    base_url = resolve_base_url(args, state)
+    context_id = _resolve_context_id(args, session)
+    body = {"objective": args.objective, "wait_ms": args.wait_ms}
+    if args.disable_ask_user:
+        body["disable_ask_user"] = True
+    envelope = cua_auth.authorized_call(
+        state, base_url, "POST", f"/v1/contexts/{context_id}/tasks", body=body, timeout=_call_timeout(args.wait_ms)
+    )
+    return _task_result("task continue", envelope, session)
+
+
+def cmd_task_status(args, state, session):
+    base_url = resolve_base_url(args, state)
+    task_id = _resolve_task_id(args, session)
+    envelope = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/tasks/{task_id}", retries=IDEMPOTENT_RETRIES
+    )
+    return _task_result("task status", envelope, session)
+
+
+def cmd_task_result(args, state, session):
+    base_url = resolve_base_url(args, state)
+    task_id = _resolve_task_id(args, session)
+    deadline = now_epoch() + max(1, args.timeout)
+    envelope = None
+    while now_epoch() < deadline:
+        try:
+            envelope = cua_auth.authorized_call(
+                state, base_url, "GET", f"/v1/tasks/{task_id}/result", retries=IDEMPOTENT_RETRIES
+            )
+            if envelope.get("outcome") != "in_progress":
+                break
+            time.sleep(3)
+        except SkillError as exc:
+            if exc.code in RETRYABLE_ERROR_CODES:
+                time.sleep(2)
+                continue
+            raise
+    if envelope is None:
+        envelope = cua_auth.authorized_call(
+            state, base_url, "GET", f"/v1/tasks/{task_id}/result", retries=IDEMPOTENT_RETRIES
+        )
+    return _task_result("task result", envelope, session)
+
+
+def cmd_task_answer(args, state, session):
+    base_url = resolve_base_url(args, state)
+    task_id = _resolve_task_id(args, session)
+    body = {"answer": args.answer, "wait_ms": args.wait_ms}
+    envelope = cua_auth.authorized_call(
+        state, base_url, "POST", f"/v1/tasks/{task_id}/answer", body=body, timeout=_call_timeout(args.wait_ms)
+    )
+    return _task_result("task answer", envelope, session)
+
+
+def cmd_task_cancel(args, state, session):
+    base_url = resolve_base_url(args, state)
+    task_id = _resolve_task_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "POST", f"/v1/tasks/{task_id}/cancel", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
+def cmd_context_list(args, state, session):
+    base_url = resolve_base_url(args, state)
+    data = cua_auth.authorized_call(state, base_url, "GET", "/v1/contexts", retries=IDEMPOTENT_RETRIES)
+    return {"data": data}
+
+
+def cmd_context_create(args, state, session):
+    base_url = resolve_base_url(args, state)
+    body = {}
+    if args.title:
+        body["title"] = args.title
+    if args.desktop:
+        body["desktop"] = args.desktop
+    data = cua_auth.authorized_call(state, base_url, "POST", "/v1/contexts", body=body)
+    context_id = data.get("context_id")
+    if context_id:
+        session.set_last(last_context_id=context_id)
+    return {"data": data, "next": {
+        "command": f"python3 {script_path()} task continue --context-id {context_id} --objective \"<TASK>\"",
+        "agent_hint": "Context created. Add background with context add-note, or start work with task continue.",
+    }}
+
+
+def cmd_context_add_note(args, state, session):
+    base_url = resolve_base_url(args, state)
+    context_id = _resolve_context_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "POST", f"/v1/contexts/{context_id}/notes", body={"text": args.text}
+    )
+    return {"data": data}
+
+
+def cmd_context_show(args, state, session):
+    base_url = resolve_base_url(args, state)
+    context_id = _resolve_context_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/contexts/{context_id}", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
+def cmd_timeline_show(args, state, session):
+    base_url = resolve_base_url(args, state)
+    context_id = _resolve_context_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/contexts/{context_id}/timeline", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
+def cmd_artifact_list(args, state, session):
+    base_url = resolve_base_url(args, state)
+    task_id = _resolve_task_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/tasks/{task_id}/artifacts", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
+def cmd_artifact_save(args, state, session):
+    base_url = resolve_base_url(args, state)
+    artifact_id = args.artifact_id or (session.last_artifact_id if args.last else None)
+    if not artifact_id:
+        raise SkillError("VALIDATION_ERROR", "artifact_id is required. Pass --artifact-id <id> or --last.")
+    data = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/artifacts/{artifact_id}/content", timeout=120, retries=IDEMPOTENT_RETRIES
+    )
+    session.set_last(last_artifact_id=artifact_id)
+
+    if data.get("missing"):
+        return {"data": {
+            "source_artifact_id": artifact_id,
+            "file": None,
+            "missing": True,
+            "placeholder_text": data.get("placeholder_text"),
+        }, "next": {
+            "agent_hint": "The artifact has no downloadable bytes (placeholder/missing). "
+            "Tell the user it is unavailable; do not claim a file was saved.",
+        }}
+
+    b64 = data.get("data")
+    if not b64:
+        raise SkillError("INTERNAL", "Artifact response contained no data and was not marked missing.")
+    try:
+        raw = base64.b64decode(b64)
+    except (ValueError, TypeError) as exc:
+        raise SkillError("INTERNAL", f"Artifact was not valid base64: {exc}")
+
+    mime_type = data.get("mime_type")
+    path = _write_artifact(raw, args.output, mime_type)
+    return {"data": {
+        "source_artifact_id": artifact_id,
+        "file": path,
+        "mime_type": mime_type,
+        "bytes": len(raw),
+    }, "next": {
+        "agent_hint": "Artifact saved to data.file. Share the path with the user; do not print the bytes.",
+    }}
+
+
+def cmd_schedule_create_once(args, state, session):
+    base_url = resolve_base_url(args, state)
+    run_at = validate_iso8601(args.run_at, "--run-at")
+    body = {"goal": args.goal, "run_at": run_at}
+    _augment_schedule_body(body, args)
+    data = cua_auth.authorized_call(state, base_url, "POST", "/v1/schedules/once", body=body)
+    return _schedule_result("schedule create-once", data, session)
+
+
+def cmd_schedule_create_recurring(args, state, session):
+    base_url = resolve_base_url(args, state)
+    start_at = validate_iso8601(args.start_at, "--start-at")
+    if args.interval_hours is None or args.interval_hours < 1:
+        raise SkillError("VALIDATION_ERROR", "--interval-hours must be an integer >= 1.")
+    body = {"goal": args.goal, "start_at": start_at, "interval_hours": args.interval_hours}
+    if args.allowed_start_window_ms is not None:
+        body["allowed_start_window_ms"] = args.allowed_start_window_ms
+    _augment_schedule_body(body, args)
+    data = cua_auth.authorized_call(state, base_url, "POST", "/v1/schedules/recurring", body=body)
+    return _schedule_result("schedule create-recurring", data, session)
+
+
+def cmd_schedule_list(args, state, session):
+    base_url = resolve_base_url(args, state)
+    data = cua_auth.authorized_call(state, base_url, "GET", "/v1/schedules", retries=IDEMPOTENT_RETRIES)
+    return {"data": data}
+
+
+def cmd_schedule_status(args, state, session):
+    base_url = resolve_base_url(args, state)
+    schedule_id = _resolve_schedule_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/schedules/{schedule_id}", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
+def cmd_schedule_history(args, state, session):
+    base_url = resolve_base_url(args, state)
+    schedule_id = _resolve_schedule_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/schedules/{schedule_id}/history", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
+def cmd_schedule_stop(args, state, session):
+    base_url = resolve_base_url(args, state)
+    schedule_id = _resolve_schedule_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "POST", f"/v1/schedules/{schedule_id}/stop", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
+def cmd_schedule_delete(args, state, session):
+    base_url = resolve_base_url(args, state)
+    schedule_id = _resolve_schedule_id(args, session)
+    data = cua_auth.authorized_call(
+        state, base_url, "DELETE", f"/v1/schedules/{schedule_id}", retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data}
+
+
 def cmd_self_test(args, state, session):
     """Local-only checks. Does not create CUA tasks or call backends."""
     checks = {
@@ -254,6 +515,120 @@ def cmd_self_test(args, state, session):
 def _has_base_url(args, state):
     return bool(args.api_base_url or os.environ.get("CUA_SKILL_API_BASE_URL")
                 or state.api_base_url or bundled_base_url())
+
+
+def _resolve_task_id(args, session):
+    if getattr(args, "task_id", None):
+        return args.task_id
+    if getattr(args, "last", False) and session.last_task_id:
+        return session.last_task_id
+    raise SkillError(
+        "VALIDATION_ERROR",
+        "task_id is required. Pass --task-id <id> or --last to reuse the most recent task.",
+    )
+
+
+def _resolve_context_id(args, session):
+    if getattr(args, "context_id", None):
+        return args.context_id
+    if getattr(args, "last_context", False) and session.last_context_id:
+        return session.last_context_id
+    raise SkillError(
+        "VALIDATION_ERROR",
+        "context_id is required. Pass --context-id <id> or --last-context.",
+    )
+
+
+def _resolve_schedule_id(args, session):
+    if getattr(args, "schedule_id", None):
+        return args.schedule_id
+    if getattr(args, "last", False) and session.last_schedule_id:
+        return session.last_schedule_id
+    raise SkillError(
+        "VALIDATION_ERROR",
+        "schedule_id is required. Pass --schedule-id <id> or --last.",
+    )
+
+
+def _augment_schedule_body(body, args):
+    if args.title:
+        body["title"] = args.title
+    if args.desktop:
+        body["desktop"] = args.desktop
+    if getattr(args, "context_mode", None):
+        body["context_mode"] = args.context_mode
+    if getattr(args, "context_id", None):
+        body["context_id"] = args.context_id
+    if getattr(args, "task_id", None):
+        body["task_id"] = args.task_id
+
+
+def _task_result(action, envelope, session):
+    """Persist task/context ids from an envelope, then return data + task-flavored next."""
+    task_id = envelope.get("invocation_id")
+    platform = envelope.get("platform") or {}
+    context_id = platform.get("context_id")
+    session.set_last(
+        last_task_id=task_id,
+        last_invocation_id=task_id,
+        last_context_id=context_id,
+    )
+    return {"data": envelope, "next": _next_for_task(envelope)}
+
+
+def _next_for_task(envelope):
+    outcome = envelope.get("outcome")
+    task_id = envelope.get("invocation_id")
+    script = script_path()
+    next_action = envelope.get("next_action") or {}
+    hint = next_action.get("agent_hint", "")
+    if outcome == "in_progress":
+        return {
+            "command": f"python3 {script} task status --task-id {task_id}",
+            "agent_hint": hint or "Keep checking task status until completed, needs_input, failed, or cancelled. "
+            f"For a hands-off wait use `python3 {script} task result --task-id {task_id}`. "
+            "Do not answer the task from progress.",
+        }
+    if outcome == "needs_input":
+        return {
+            "command": f'python3 {script} task answer --task-id {task_id} --answer "<USER_ANSWER>"',
+            "agent_hint": hint or "Relay input_request.question to the user verbatim, then submit their reply with task answer.",
+        }
+    if outcome == "completed":
+        return {"agent_hint": hint or "Use data.result.text as the authoritative final result. "
+                "Save any produced files with artifact save."}
+    if outcome == "failed":
+        return {"agent_hint": hint or "CUA could not complete the task. Explain the failure; retry only if the user asks."}
+    if outcome == "cancelled":
+        return {"agent_hint": hint or "The task was cancelled."}
+    return None
+
+
+def _schedule_result(action, data, session):
+    schedule_id = data.get("schedule_id")
+    if schedule_id:
+        session.set_last(last_schedule_id=schedule_id)
+    return {"data": data, "next": {
+        "command": f"python3 {script_path()} schedule status --schedule-id {schedule_id}",
+        "agent_hint": "Scheduled task created. Do NOT run the goal now unless the user also asked to do it once. "
+        "After the scheduled time, use schedule history to read what actually ran.",
+    }}
+
+
+def _write_artifact(raw, output, mime_type):
+    if output:
+        path = os.path.abspath(os.path.expanduser(output))
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(raw)
+        return path
+    ext = ext_for_mime(mime_type)
+    fd, path = tempfile.mkstemp(prefix="cua-artifact-", suffix=ext)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(raw)
+    return path
 
 
 def _resolve_invocation_id(args, session):
@@ -392,7 +767,155 @@ def build_parser():
     p = sub.add_parser("self-test", help="Local-only checks. Creates no CUA task.")
     p.set_defaults(handler=cmd_self_test, action="self-test")
 
+    _add_semantic_parsers(sub)
+
     return parser
+
+
+def _add_semantic_parsers(sub):
+    """Resource-aware semantic command surface (task/context/schedule/artifact/desktop)."""
+
+    p = sub.add_parser("diagnose", help="Confirm CUA is reachable and a desktop is bound. Creates no task.")
+    p.set_defaults(handler=cmd_diagnose, action="diagnose")
+
+    desktop = sub.add_parser("desktop", help="Cloud-desktop commands.").add_subparsers(dest="desktop_command")
+    p = desktop.add_parser("list", help="List selectable cloud desktops.")
+    p.set_defaults(handler=cmd_desktop_list, action="desktop list")
+
+    # -- task --
+    task = sub.add_parser("task", help="Run and manage CUA tasks (semantic delegate).").add_subparsers(dest="task_command")
+
+    p = task.add_parser("run", help="Start a new CUA task, optionally on a chosen desktop.")
+    p.add_argument("--objective", required=True, help="The user's original request. Do not pre-plan or add constraints.")
+    p.add_argument("--desktop", help="Desktop id or name (from desktop list). Defaults to the bound desktop.")
+    p.add_argument("--title", help="Title for the auto-created context.")
+    p.add_argument("--disable-ask-user", action="store_true", help="Do not let CUA pause to ask the user mid-task.")
+    p.add_argument("--wait-ms", type=int, default=0, help="Max ms the server waits before returning. Default 0.")
+    p.set_defaults(handler=cmd_task_run, action="task run")
+
+    p = task.add_parser("continue", help="Continue work in an existing context.")
+    p.add_argument("--objective", required=True, help="What to do next in this context.")
+    p.add_argument("--context-id", help="The context to continue.")
+    p.add_argument("--last-context", action="store_true", help="Use the most recent context id.")
+    p.add_argument("--disable-ask-user", action="store_true", help="Do not let CUA pause to ask the user mid-task.")
+    p.add_argument("--wait-ms", type=int, default=0, help="Max ms the server waits before returning. Default 0.")
+    p.set_defaults(handler=cmd_task_continue, action="task continue")
+
+    p = task.add_parser("status", help="Check a task's current state.")
+    _add_task_args(p)
+    p.set_defaults(handler=cmd_task_status, action="task status")
+
+    p = task.add_parser("result", help="Wait until terminal and return the authoritative result.")
+    _add_task_args(p)
+    p.add_argument("--timeout", type=int, default=600, help="Total seconds to keep waiting for a terminal outcome.")
+    p.set_defaults(handler=cmd_task_result, action="task result")
+
+    p = task.add_parser("answer", help="Answer CUA's question when outcome is needs_input.")
+    _add_task_args(p)
+    p.add_argument("--answer", required=True, help="The user's answer to input_request.question.")
+    p.add_argument("--wait-ms", type=int, default=DEFAULT_WATCH_WAIT_MS, help="Max ms to wait before returning.")
+    p.set_defaults(handler=cmd_task_answer, action="task answer")
+
+    p = task.add_parser("cancel", help="Cancel a task. Only when the user asks to stop.")
+    _add_task_args(p)
+    p.set_defaults(handler=cmd_task_cancel, action="task cancel")
+
+    # -- context --
+    context = sub.add_parser("context", help="Manage reusable task contexts.").add_subparsers(dest="context_command")
+
+    p = context.add_parser("list", help="List continuable contexts.")
+    p.set_defaults(handler=cmd_context_list, action="context list")
+
+    p = context.add_parser("create", help="Open a long-lived context without running a task yet.")
+    p.add_argument("--title", help="Context title.")
+    p.add_argument("--desktop", help="Desktop id or name. Defaults to the bound desktop.")
+    p.set_defaults(handler=cmd_context_create, action="context create")
+
+    p = context.add_parser("add-note", help="Add background to a context without starting a run.")
+    _add_context_args(p)
+    p.add_argument("--text", required=True, help="The background/context note to record.")
+    p.set_defaults(handler=cmd_context_add_note, action="context add-note")
+
+    p = context.add_parser("show", help="Show a context summary and recent task.")
+    _add_context_args(p)
+    p.set_defaults(handler=cmd_context_show, action="context show")
+
+    # -- timeline --
+    timeline = sub.add_parser("timeline", help="Conversation timeline commands.").add_subparsers(dest="timeline_command")
+    p = timeline.add_parser("show", help="Show the full conversation timeline projection for a context.")
+    _add_context_args(p)
+    p.set_defaults(handler=cmd_timeline_show, action="timeline show")
+
+    # -- artifact --
+    artifact = sub.add_parser("artifact", help="List and save task artifacts.").add_subparsers(dest="artifact_command")
+
+    p = artifact.add_parser("list", help="List artifacts produced by a task.")
+    _add_task_args(p)
+    p.set_defaults(handler=cmd_artifact_list, action="artifact list")
+
+    p = artifact.add_parser("save", help="Download an artifact (file, screenshot, log) to a local path.")
+    p.add_argument("--artifact-id", help="The artifact id (from artifact list / result).")
+    p.add_argument("--last", action="store_true", help="Use the most recent artifact id.")
+    p.add_argument("--output", help="Where to write the file. Defaults to a temp file named by content type.")
+    p.set_defaults(handler=cmd_artifact_save, action="artifact save")
+
+    # -- schedule --
+    schedule = sub.add_parser("schedule", help="Create and manage future/recurring tasks.").add_subparsers(dest="schedule_command")
+
+    p = schedule.add_parser("create-once", help="Run a goal once at a future time.")
+    _add_schedule_common_args(p)
+    p.add_argument("--run-at", required=True, help="ISO-8601 time to run once, e.g. 2026-06-25T20:00:00Z.")
+    p.set_defaults(handler=cmd_schedule_create_once, action="schedule create-once")
+
+    p = schedule.add_parser("create-recurring", help="Run a goal repeatedly on an interval.")
+    _add_schedule_common_args(p)
+    p.add_argument("--start-at", required=True, help="ISO-8601 first run time.")
+    p.add_argument("--interval-hours", type=int, required=True, help="Hours between runs (minimum 1).")
+    p.add_argument("--allowed-start-window-ms", type=int, help="Optional allowed start jitter window in ms.")
+    p.set_defaults(handler=cmd_schedule_create_recurring, action="schedule create-recurring")
+
+    p = schedule.add_parser("list", help="List scheduled tasks.")
+    p.set_defaults(handler=cmd_schedule_list, action="schedule list")
+
+    p = schedule.add_parser("status", help="Show a scheduled task's status.")
+    _add_schedule_args(p)
+    p.set_defaults(handler=cmd_schedule_status, action="schedule status")
+
+    p = schedule.add_parser("history", help="Show a scheduled task's executions and results.")
+    _add_schedule_args(p)
+    p.set_defaults(handler=cmd_schedule_history, action="schedule history")
+
+    p = schedule.add_parser("stop", help="Stop future triggers of a scheduled task.")
+    _add_schedule_args(p)
+    p.set_defaults(handler=cmd_schedule_stop, action="schedule stop")
+
+    p = schedule.add_parser("delete", help="Delete a scheduled task.")
+    _add_schedule_args(p)
+    p.set_defaults(handler=cmd_schedule_delete, action="schedule delete")
+
+
+def _add_task_args(p):
+    p.add_argument("--task-id", help="The task id (same id space as invocation_id).")
+    p.add_argument("--last", action="store_true", help="Use the most recent task id from local session cache.")
+
+
+def _add_context_args(p):
+    p.add_argument("--context-id", help="The context id.")
+    p.add_argument("--last-context", action="store_true", help="Use the most recent context id.")
+
+
+def _add_schedule_args(p):
+    p.add_argument("--schedule-id", help="The schedule id.")
+    p.add_argument("--last", action="store_true", help="Use the most recent schedule id.")
+
+
+def _add_schedule_common_args(p):
+    p.add_argument("--goal", required=True, help="The product goal to run at the scheduled time.")
+    p.add_argument("--title", help="Optional display title.")
+    p.add_argument("--desktop", help="Desktop id or name. Defaults to the bound desktop.")
+    p.add_argument("--context-mode", choices=["scheduled", "current"], help="Bind to a fresh scheduled context (default) or a current one.")
+    p.add_argument("--context-id", help="Required when --context-mode current. Source context to bind.")
+    p.add_argument("--task-id", help="Optional source task id for provenance.")
 
 
 def _add_invocation_args(p):

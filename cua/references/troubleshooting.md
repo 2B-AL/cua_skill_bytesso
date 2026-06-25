@@ -11,12 +11,24 @@ Branch on `error.code`.
 | `FORBIDDEN` | 403 | missing scope | tell the user they lack permission for this action |
 | `DESKTOP_NOT_BOUND` | 403 | no CUA desktop allocated | tell the user CUA is not provisioned; contact an admin |
 | `INVOCATION_NOT_FOUND` | 404 | wrong/unknown invocation id | re-check the id; do not guess. Use `--last` or the id from `delegate` |
-| `INVOCATION_NOT_WAITING_INPUT` | 409 | `answer` sent but CUA is not asking | run `watch` first to see the real state |
+| `INVOCATION_NOT_WAITING_INPUT` | 409 | `answer` sent but CUA is not asking | run `watch`/`task status` first to see the real state |
+| `CONTEXT_NOT_FOUND` | 404 | wrong/unknown context id | re-check the id; use `context list` or `--last-context` |
+| `SCHEDULE_NOT_FOUND` | 404 | wrong/unknown (or deleted) schedule id | re-check with `schedule list` |
+| `ARTIFACT_NOT_FOUND` | 404 | unknown artifact, or it has no bytes | re-check with `artifact list`; a placeholder artifact has no downloadable content |
+| `ACTIVE_RUN_CONFLICT` | 409 | the context already has a run in flight | wait for it (`task status`) before starting another |
+| `SCHEDULE_NESTING_NOT_ALLOWED` | 409 | a scheduled task tried to manage schedules | scheduled tasks cannot create/modify other schedules; do it directly |
+| `PAYLOAD_TOO_LARGE` | 413 | request body too large | shorten the objective/note/answer |
+| `DESKTOP_NOT_FOUND` | 404 | `--desktop` id/name does not exist | run `desktop list` and use a listed id/name |
 | `CUA_BACKEND_UNAVAILABLE` | 503 | CUA backend down | wait and retry, or report the outage |
 | `RATE_LIMITED` | 429 | too many requests | wait, then retry |
-| `VALIDATION_ERROR` | 400 | bad/missing argument | fix the argument and retry |
+| `VALIDATION_ERROR` | 400 | bad/missing argument (e.g. malformed `--run-at`) | fix the argument and retry |
 | `NETWORK` | — | cannot reach the gateway | check connectivity / `--api-base-url`; retry |
 | `INTERNAL` | 500 | unexpected | retry once; if it persists, report it |
+
+The gateway translates the platform's raw snake_case errors (`active_run_conflict`,
+`run_not_blocked`, `session_desktop_mismatch`, `nested_scheduled_task_not_allowed`,
+`deleted_task`, `artifact_missing`, `payload_too_large`, …) into these stable
+Skill codes, so you only ever branch on the codes above — never on raw platform codes.
 
 ## Common situations
 

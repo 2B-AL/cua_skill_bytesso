@@ -110,3 +110,61 @@ def script_path():
 def login_retry_command():
     """The exact command an agent should run to (re)login, using this script's path."""
     return f"python3 {script_path()} auth login"
+
+
+# MIME type -> file extension, for artifact downloads that don't specify a name.
+_EXT_BY_MIME = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/svg+xml": ".svg",
+    "application/pdf": ".pdf",
+    "application/json": ".json",
+    "application/zip": ".zip",
+    "application/octet-stream": ".bin",
+    "text/plain": ".txt",
+    "text/csv": ".csv",
+    "text/html": ".html",
+    "text/markdown": ".md",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+}
+
+
+def ext_for_mime(mime_type):
+    """Best-effort file extension for a MIME type. Defaults to .bin."""
+    if not mime_type:
+        return ".bin"
+    base = mime_type.split(";", 1)[0].strip().lower()
+    if base in _EXT_BY_MIME:
+        return _EXT_BY_MIME[base]
+    # Fall back to the subtype for unknown but well-formed types (e.g. image/heic -> .heic).
+    if "/" in base:
+        subtype = base.split("/", 1)[1]
+        subtype = subtype.split("+", 1)[0]
+        if subtype.isalnum():
+            return "." + subtype
+    return ".bin"
+
+
+def validate_iso8601(value, field):
+    """Validate an ISO-8601 timestamp string, returning it unchanged.
+
+    Raises SkillError(VALIDATION_ERROR) on a malformed value so the agent gets a
+    clear, actionable message instead of a backend rejection.
+    """
+    if not value:
+        raise SkillError("VALIDATION_ERROR", f"{field} is required and must be an ISO-8601 timestamp.")
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        raise SkillError(
+            "VALIDATION_ERROR",
+            f"{field}={value!r} is not a valid ISO-8601 timestamp "
+            "(expected e.g. 2026-06-25T20:00:00Z or 2026-06-25T20:00:00+08:00).",
+        )
+    return value

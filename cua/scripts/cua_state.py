@@ -138,6 +138,39 @@ class SessionState(_JsonFile):
         self.data["last_invocation_id"] = invocation_id
         self.save()
 
+    # The semantic command surface (task/context/schedule/artifact) remembers the
+    # most recent id of each kind so weak agents can use `--last-*` instead of
+    # threading ids through every call.
+    @property
+    def last_task_id(self):
+        # A task is backed by an invocation; they share the same id space.
+        return self.data.get("last_task_id") or self.data.get("last_invocation_id")
+
+    @property
+    def last_context_id(self):
+        return self.data.get("last_context_id")
+
+    @property
+    def last_schedule_id(self):
+        return self.data.get("last_schedule_id")
+
+    @property
+    def last_artifact_id(self):
+        return self.data.get("last_artifact_id")
+
+    def set_last(self, **ids):
+        """Persist any of last_task_id / last_context_id / last_schedule_id /
+        last_artifact_id / last_invocation_id that are provided and non-empty."""
+        changed = False
+        for key in ("last_task_id", "last_context_id", "last_schedule_id",
+                    "last_artifact_id", "last_invocation_id"):
+            value = ids.get(key)
+            if value and self.data.get(key) != value:
+                self.data[key] = value
+                changed = True
+        if changed:
+            self.save()
+
 
 def _ensure_secure_permissions(path):
     try:
