@@ -280,7 +280,7 @@ def cmd_model_set(args, state, session):
         "main_model": args.main_model,
         "reasoning_effort": args.reasoning_effort,
     }
-    data = cua_auth.authorized_call(state, base_url, "PATCH", "/v1/model-config", body=body)
+    data = cua_auth.authorized_call(state, base_url, "POST", "/v1/model-config", body=body)
     return {"data": data, "next": {
         "agent_hint": "Model config updated. It affects future CUA delegations on the bound desktop.",
     }}

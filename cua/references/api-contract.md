@@ -33,7 +33,7 @@ Error:
 | `POST` | `/v1/auth/logout` | refresh token (body) | revoke session |
 | `GET` | `/v1/ping` | access token | auth + desktop-binding check |
 | `GET` | `/v1/model-config` | access token | read bound desktop default model config |
-| `PATCH` | `/v1/model-config` | access token | set bound desktop default model config (`{main_model, reasoning_effort}`) |
+| `POST` | `/v1/model-config` | access token | set bound desktop default model config (`{main_model, reasoning_effort}`) |
 | `POST` | `/v1/invocations` | access token | delegate (`{objective, wait_ms}`) |
 | `GET` | `/v1/invocations/{id}` | access token | current invocation state |
 | `POST` | `/v1/invocations/{id}/watch` | access token | wait for next state (`{wait_ms}`) |
