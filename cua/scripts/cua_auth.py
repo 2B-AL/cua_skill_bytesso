@@ -8,7 +8,7 @@ local cache and are never written to stdout/stderr.
 import time
 import webbrowser
 
-from cua_http import gateway_call
+from cua_http import gateway_call, raw_request
 from cua_util import (
     RETRYABLE_ERROR_CODES,
     SkillError,
@@ -71,6 +71,21 @@ def authorized_call(state, base_url, method, path, body=None, query=None, timeou
             raise
 
 
+def authorized_raw_call(state, base_url, method, path, body=None, query=None, timeout=None, retries=0):
+    """Call a business endpoint and return (headers, raw_bytes), with the same
+    token refresh/retry behavior as authorized_call."""
+    attempt = 0
+    while True:
+        try:
+            return _authorized_raw_call_once(state, base_url, method, path, body=body, query=query, timeout=timeout)
+        except SkillError as exc:
+            if exc.code in RETRYABLE_ERROR_CODES and attempt < retries:
+                attempt += 1
+                time.sleep(min(2 * attempt, 5))
+                continue
+            raise
+
+
 def _authorized_call_once(state, base_url, method, path, body=None, query=None, timeout=None):
     kwargs = {"body": body, "query": query}
     if timeout is not None:
@@ -82,6 +97,24 @@ def _authorized_call_once(state, base_url, method, path, body=None, query=None, 
         if exc.code in ("TOKEN_EXPIRED", "AUTH_REQUIRED") and state.refresh_token:
             token = refresh_access_token(state, base_url)
             return gateway_call(method, base_url, path, token=token, **kwargs)
+        if exc.code in ("AUTH_REQUIRED", "TOKEN_EXPIRED") and "retry_command" not in exc.extra:
+            exc.extra["retry_command"] = login_retry_command()
+        raise
+
+
+def _authorized_raw_call_once(state, base_url, method, path, body=None, query=None, timeout=None):
+    kwargs = {"body": body, "query": query}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    token = ensure_access_token(state, base_url)
+    try:
+        _status, headers, raw = raw_request(method, base_url, path, token=token, **kwargs)
+        return headers, raw
+    except SkillError as exc:
+        if exc.code in ("TOKEN_EXPIRED", "AUTH_REQUIRED") and state.refresh_token:
+            token = refresh_access_token(state, base_url)
+            _status, headers, raw = raw_request(method, base_url, path, token=token, **kwargs)
+            return headers, raw
         if exc.code in ("AUTH_REQUIRED", "TOKEN_EXPIRED") and "retry_command" not in exc.extra:
             exc.extra["retry_command"] = login_retry_command()
         raise

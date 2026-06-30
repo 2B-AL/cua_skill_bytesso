@@ -23,6 +23,33 @@ Zero-config: the gateway URL is baked into the skill (`config.json`). The only
 one-time step is login, which the workflow triggers for you. (Advanced override:
 `--api-base-url <url>` or `CUA_SKILL_API_BASE_URL`.)
 
+## If the user asks to update this skill
+
+Do not run CUA tasks for an update request. Update the installed skill package
+itself, then tell the user to restart the target agent so the new instructions
+and scripts are reloaded.
+
+First try an in-place update:
+
+```bash
+npx -y skills update cua -g -y
+```
+
+If the CLI reports that `cua` cannot be updated automatically, reinstall it from
+GitHub:
+
+```bash
+npx -y skills add 2B-AL/cua_skill --full-depth --skill cua --agent '*' -g --copy -y
+```
+
+For a local development checkout, refresh from the local repo instead:
+
+```bash
+npx -y skills add /Users/bytedance/projects/ALProject/cua_skill --full-depth --skill cua --agent '*' -g --copy -y
+```
+
+Never ask the user for CUA tokens or API keys while updating the skill.
+
 ## Fixed workflow — follow in order
 
 1. **Check auth**: run `auth status`.

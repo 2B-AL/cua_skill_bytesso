@@ -41,6 +41,9 @@ Error:
 | `POST` | `/v1/invocations/{id}/cancel` | access token | request cancellation |
 | `GET` | `/v1/desktop/access` | access token | temporary desktop access URL (default desktop) |
 | `GET` | `/v1/desktop/screenshot` | access token | screenshot of the default desktop |
+| `POST` | `/v1/desktop/reboot` | access token | reboot the caller's bound desktop (`{desktop_id?, idempotency_key?}`) |
+| `POST` | `/v1/desktop/reset` | access token | reset the caller's bound desktop (`{desktop_id?, confirm:true, idempotency_key?}`) |
+| `GET` | `/v1/desktop/operations/{id}` | access token | lifecycle operation status |
 | `GET` | `/v1/invocations/{id}/desktop/access` | access token | access URL for the invocation's desktop |
 | `GET` | `/v1/invocations/{id}/desktop/screenshot` | access token | screenshot of the invocation's desktop |
 | `GET` | `/v1/diagnostics` | access token | reachability + desktop binding summary |
@@ -64,7 +67,7 @@ Error:
 | `GET` | `/v1/schedules/{id}/history` | access token | executions + results |
 | `POST` | `/v1/schedules/{id}/stop` | access token | stop future triggers |
 | `DELETE` | `/v1/schedules/{id}` | access token | delete schedule |
-| `GET` | `/v1/artifacts/{id}/content` | access token | artifact bytes (base64 in `data`) |
+| `GET` | `/v1/artifacts/{id}/content?task_id={task_id}` | access token | raw artifact bytes; legacy JSON/base64 may be accepted during migration only |
 
 The gateway owns all platform `/api/**` calls (desktops, sessions, runs,
 scheduled-tasks, artifacts) behind these stable semantic routes; the skill never
