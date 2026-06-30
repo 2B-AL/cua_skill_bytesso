@@ -38,11 +38,44 @@ def request(method, base_url, path, token=None, body=None, query=None, timeout=D
         raise SkillError("NETWORK", f"Request to {url} timed out")
 
 
+def raw_request(method, base_url, path, token=None, body=None, query=None, timeout=DEFAULT_TIMEOUT_SEC):
+    """Perform an HTTP request and return raw bytes plus response headers.
+
+    Non-2xx responses are decoded like `gateway_call`, so callers get stable
+    SkillError codes while successful artifact downloads can stream raw bytes.
+    """
+    url = base_url.rstrip("/") + path
+    if query:
+        url += "?" + urlencode(query)
+    headers = {"accept": "application/octet-stream, */*"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["content-type"] = "application/json"
+    if token:
+        headers["authorization"] = "Bearer " + token
+    req = Request(url, data=data, headers=headers, method=method)
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            return resp.status, _headers_dict(resp), resp.read()
+    except HTTPError as exc:
+        payload = _read_json(exc)
+        _raise_gateway_error(exc.code, payload)
+    except URLError as exc:
+        raise SkillError("NETWORK", f"Cannot reach CUA gateway at {base_url}: {exc.reason}")
+    except TimeoutError:
+        raise SkillError("NETWORK", f"Request to {url} timed out")
+
+
 def gateway_call(method, base_url, path, token=None, body=None, query=None, timeout=DEFAULT_TIMEOUT_SEC):
     """Call the gateway and return the `data` payload, raising SkillError on error."""
     status, payload = request(method, base_url, path, token=token, body=body, query=query, timeout=timeout)
     if isinstance(payload, dict) and payload.get("ok") is True:
         return payload.get("data", {})
+    _raise_gateway_error(status, payload)
+
+
+def _raise_gateway_error(status, payload):
     # Prefer a real gateway error envelope (it carries the authoritative code).
     error = payload.get("error") if isinstance(payload, dict) else None
     if isinstance(error, dict) and error.get("code"):
@@ -57,6 +90,10 @@ def gateway_call(method, base_url, path, token=None, body=None, query=None, time
         raise SkillError("CUA_BACKEND_UNAVAILABLE", f"Gateway/backend unavailable (HTTP {status}).")
     raw = payload.get("_raw") if isinstance(payload, dict) else None
     raise SkillError("INTERNAL", raw or f"Unexpected gateway response (HTTP {status})")
+
+
+def _headers_dict(response):
+    return {k.lower(): v for k, v in response.headers.items()}
 
 
 def _read_json(response):

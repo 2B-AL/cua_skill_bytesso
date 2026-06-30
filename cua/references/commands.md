@@ -185,6 +185,21 @@ a specific desktop, then pass it to `task run --desktop`.
 python3 scripts/cua.py desktop list
 ```
 
+## desktop access / reboot / reset / operation get
+
+Desktop access returns a short-lived Desktop Gateway URL for the bound desktop.
+Lifecycle commands are asynchronous and return an operation id.
+
+```bash
+python3 scripts/cua.py desktop access
+python3 scripts/cua.py desktop reboot [--desktop <id>] [--idempotency-key <key>]
+python3 scripts/cua.py desktop reset --confirm [--desktop <id>] [--idempotency-key <key>]
+python3 scripts/cua.py desktop operation get (--operation-id <id> | --last)
+```
+
+Use `desktop operation get` until `data.terminal == true`. `reset` always
+requires `--confirm`.
+
 ## model get / model set
 
 Read or update the default model config for the bound CUA desktop. Use only
@@ -273,14 +288,15 @@ python3 scripts/cua.py timeline show (--context-id <id> | --last-context)
 
 ```bash
 python3 scripts/cua.py artifact list (--task-id <id> | --last)
-python3 scripts/cua.py artifact save (--artifact-id <id> | --last) [--output <path>]
+python3 scripts/cua.py artifact save (--artifact-id <id> | --last) [--task-id <id>] [--output <path>]
 ```
 
 `artifact save` writes the file to `--output` (or a temp file named by content
 type) and returns `data.file`, `data.mime_type`, `data.bytes`,
-`data.source_artifact_id`. The bytes are never printed. If the artifact has no
-downloadable content, `data.missing` is `true` with `data.placeholder_text` —
-do NOT claim a file was saved.
+`data.source_artifact_id`. New gateways return raw bytes; during migration the
+CLI can still decode a legacy JSON/base64 envelope. The bytes are never printed.
+If the artifact has no downloadable content, `data.missing` is `true` with
+`data.placeholder_text` — do NOT claim a file was saved.
 
 ## schedule create-once / create-recurring
 

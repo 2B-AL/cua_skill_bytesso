@@ -266,6 +266,52 @@ def cmd_desktop_list(args, state, session):
     return {"data": data}
 
 
+def cmd_desktop_access(args, state, session):
+    base_url = resolve_base_url(args, state)
+    data = cua_auth.authorized_call(state, base_url, "GET", "/v1/desktop/access", timeout=120, retries=IDEMPOTENT_RETRIES)
+    access_url = data.get("access_url")
+    if access_url:
+        desktop_view_url, full_interface_url = _derive_desktop_urls(access_url)
+        if desktop_view_url:
+            data["desktop_view_url"] = desktop_view_url
+        if full_interface_url:
+            data["full_interface_url"] = full_interface_url
+    return {"data": data, "next": {
+        "agent_hint": "Temporary desktop access URL returned. If it expires, run desktop access again.",
+    }}
+
+
+def cmd_desktop_lifecycle(args, state, session):
+    base_url = resolve_base_url(args, state)
+    body = {}
+    if args.desktop:
+        body["desktop_id"] = args.desktop
+    if args.idempotency_key:
+        body["idempotency_key"] = args.idempotency_key
+    if getattr(args, "confirm", False):
+        body["confirm"] = True
+    data = cua_auth.authorized_call(state, base_url, "POST", f"/v1/desktop/{args.lifecycle_action}", body=body)
+    operation_id = data.get("operation_id") or (data.get("operation") or {}).get("operation_id")
+    if operation_id:
+        session.set_last(last_operation_id=operation_id)
+    return {"data": data, "next": {
+        "command": f"python3 {script_path()} desktop operation get --operation-id {operation_id}" if operation_id else None,
+        "agent_hint": "Lifecycle operation accepted. Poll desktop operation get until terminal=true.",
+    }}
+
+
+def cmd_desktop_operation_get(args, state, session):
+    base_url = resolve_base_url(args, state)
+    operation_id = args.operation_id or (session.last_operation_id if args.last else None)
+    if not operation_id:
+        raise SkillError("VALIDATION_ERROR", "operation_id is required. Pass --operation-id <id> or --last.")
+    data = cua_auth.authorized_call(
+        state, base_url, "GET", f"/v1/desktop/operations/{operation_id}", retries=IDEMPOTENT_RETRIES
+    )
+    session.set_last(last_operation_id=operation_id)
+    return {"data": data}
+
+
 def cmd_model_get(args, state, session):
     base_url = resolve_base_url(args, state)
     data = cua_auth.authorized_call(state, base_url, "GET", "/v1/model-config", retries=IDEMPOTENT_RETRIES)
@@ -430,14 +476,40 @@ def cmd_artifact_save(args, state, session):
     artifact_id = args.artifact_id or (session.last_artifact_id if args.last else None)
     if not artifact_id:
         raise SkillError("VALIDATION_ERROR", "artifact_id is required. Pass --artifact-id <id> or --last.")
-    data = cua_auth.authorized_call(
-        state, base_url, "GET", f"/v1/artifacts/{artifact_id}/content", timeout=120, retries=IDEMPOTENT_RETRIES
+    task_id = args.task_id or session.last_task_id
+    query = {"task_id": task_id} if task_id else None
+    headers, raw = cua_auth.authorized_raw_call(
+        state, base_url, "GET", f"/v1/artifacts/{artifact_id}/content",
+        query=query, timeout=120, retries=IDEMPOTENT_RETRIES
     )
     session.set_last(last_artifact_id=artifact_id)
+    data = _legacy_artifact_envelope(raw, headers)
+    if data is None:
+        mime_type = _content_type(headers)
+        path = _write_artifact(raw, args.output, mime_type)
+        result = {
+            "source_artifact_id": artifact_id,
+            "source_task_id": task_id,
+            "file": path,
+            "mime_type": mime_type,
+            "bytes": len(raw),
+            "transport": "raw",
+        }
+        if _looks_like_html(mime_type, raw):
+            result["suspect_html"] = True
+            return {"data": result, "next": {
+                "agent_hint": "The downloaded bytes look like an HTML page, not the expected file. "
+                "This is usually an error/login/interstitial page. Do not present it as the real document; "
+                "ask CUA to re-export the artifact instead.",
+            }}
+        return {"data": result, "next": {
+            "agent_hint": "Artifact saved to data.file from raw bytes. Share the path with the user; do not print the bytes.",
+        }}
 
     if data.get("missing"):
         return {"data": {
             "source_artifact_id": artifact_id,
+            "source_task_id": task_id,
             "file": None,
             "missing": True,
             "placeholder_text": data.get("placeholder_text"),
@@ -458,9 +530,11 @@ def cmd_artifact_save(args, state, session):
     path = _write_artifact(raw, args.output, mime_type)
     result = {
         "source_artifact_id": artifact_id,
+        "source_task_id": task_id,
         "file": path,
         "mime_type": mime_type,
         "bytes": len(raw),
+        "transport": "legacy_base64",
     }
     # A surprise HTML payload usually means an error/interstitial page (e.g. a
     # Cloudflare challenge from an external share link), not the real file.
@@ -669,6 +743,24 @@ def _looks_like_html(mime_type, raw):
     return head.startswith(b"<!doctype html") or head.startswith(b"<html")
 
 
+def _content_type(headers):
+    value = headers.get("content-type") or headers.get("Content-Type") or ""
+    return value.split(";", 1)[0].strip() or None
+
+
+def _legacy_artifact_envelope(raw, headers):
+    content_type = _content_type(headers) or ""
+    if "json" not in content_type and not raw.lstrip().startswith(b"{"):
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if isinstance(payload, dict) and payload.get("ok") is True and isinstance(payload.get("data"), dict):
+        return payload["data"]
+    return None
+
+
 def _write_artifact(raw, output, mime_type):
     if output:
         path = os.path.abspath(os.path.expanduser(output))
@@ -873,6 +965,26 @@ def _add_semantic_parsers(sub):
     p = desktop.add_parser("list", help="List selectable cloud desktops.")
     p.set_defaults(handler=cmd_desktop_list, action="desktop list")
 
+    p = desktop.add_parser("access", help="Get a temporary desktop access URL.")
+    p.set_defaults(handler=cmd_desktop_access, action="desktop access")
+
+    p = desktop.add_parser("reboot", help="Reboot the bound cloud desktop.")
+    p.add_argument("--desktop", help="Desktop id. Defaults to the bound desktop.")
+    p.add_argument("--idempotency-key", help="Optional caller-scoped idempotency key.")
+    p.set_defaults(handler=cmd_desktop_lifecycle, action="desktop reboot", lifecycle_action="reboot")
+
+    p = desktop.add_parser("reset", help="Reset the bound cloud desktop. Requires --confirm.")
+    p.add_argument("--desktop", help="Desktop id. Defaults to the bound desktop.")
+    p.add_argument("--idempotency-key", help="Optional caller-scoped idempotency key.")
+    p.add_argument("--confirm", action="store_true", required=True, help="Required explicit confirmation.")
+    p.set_defaults(handler=cmd_desktop_lifecycle, action="desktop reset", lifecycle_action="reset")
+
+    operation = desktop.add_parser("operation", help="Read desktop lifecycle operation status.").add_subparsers(dest="operation_command")
+    p = operation.add_parser("get", help="Get operation status.")
+    p.add_argument("--operation-id", help="Operation id returned by desktop reboot/reset.")
+    p.add_argument("--last", action="store_true", help="Use the most recent operation id.")
+    p.set_defaults(handler=cmd_desktop_operation_get, action="desktop operation get")
+
     model = sub.add_parser("model", help="Read or set the default CUA model config.").add_subparsers(dest="model_command")
     p = model.add_parser("get", help="Read the bound desktop's default model config.")
     p.set_defaults(handler=cmd_model_get, action="model get")
@@ -957,6 +1069,7 @@ def _add_semantic_parsers(sub):
     p = artifact.add_parser("save", help="Download an artifact (file, screenshot, log) to a local path.")
     p.add_argument("--artifact-id", help="The artifact id (from artifact list / result).")
     p.add_argument("--last", action="store_true", help="Use the most recent artifact id.")
+    p.add_argument("--task-id", help="Task id that owns the artifact. Defaults to the most recent task.")
     p.add_argument("--output", help="Where to write the file. Defaults to a temp file named by content type.")
     p.set_defaults(handler=cmd_artifact_save, action="artifact save")
 

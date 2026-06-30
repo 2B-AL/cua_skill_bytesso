@@ -11,13 +11,12 @@ subdirectory (do **not** install the repo root):
 
 ```bash
 # with the `skills` CLI
-npx skills add github:2B-AL/cua_skill --path cua --name cua
+npx -y skills add 2B-AL/cua_skill --full-depth --skill cua --agent '*' -g --copy -y
 ```
 
-> Why the subdirectory? Some installers do a sparse/partial clone. Installing the
-> **repo root** as a skill can leave only the top-level files (`SKILL.md`,
-> `config.json`) and miss `scripts/` and `references/`. Installing the `cua/`
-> subdirectory makes the installer check out the whole skill subtree reliably.
+`--full-depth --skill cua` makes the installer discover the `cua/` subdirectory
+as the actual skill. `--copy` installs a self-contained snapshot into the target
+agent directories.
 
 After install, verify it landed completely (this creates no CUA task):
 
@@ -43,3 +42,21 @@ python3 <skill_dir>/scripts/cua.py watch --last
 Zero-config: the gateway URL is baked into [`cua/config.json`](cua/config.json).
 Override per call with `--api-base-url <url>` or the `CUA_SKILL_API_BASE_URL`
 environment variable.
+
+## Update
+
+If CUA Skill was installed with a recent `skills` CLI, update it in place:
+
+```bash
+npx -y skills update cua -g -y
+```
+
+If the CLI says the skill cannot be updated automatically, refresh it by
+installing from GitHub again:
+
+```bash
+npx -y skills add 2B-AL/cua_skill --full-depth --skill cua --agent '*' -g --copy -y
+```
+
+Restart the target agent after updating so it reloads the new `SKILL.md` and
+scripts.

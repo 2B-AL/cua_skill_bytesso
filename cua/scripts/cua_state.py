@@ -158,12 +158,17 @@ class SessionState(_JsonFile):
     def last_artifact_id(self):
         return self.data.get("last_artifact_id")
 
+    @property
+    def last_operation_id(self):
+        return self.data.get("last_operation_id")
+
     def set_last(self, **ids):
         """Persist any of last_task_id / last_context_id / last_schedule_id /
-        last_artifact_id / last_invocation_id that are provided and non-empty."""
+        last_artifact_id / last_invocation_id / last_operation_id that are
+        provided and non-empty."""
         changed = False
         for key in ("last_task_id", "last_context_id", "last_schedule_id",
-                    "last_artifact_id", "last_invocation_id"):
+                    "last_artifact_id", "last_invocation_id", "last_operation_id"):
             value = ids.get(key)
             if value and self.data.get(key) != value:
                 self.data[key] = value
