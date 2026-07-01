@@ -28,7 +28,7 @@ If not logged in: `error.code = AUTH_REQUIRED` with `retry_command`.
 
 ## auth login
 
-Run the SSO device-login flow and cache tokens locally (0600).
+Run the AL OAuth Feishu member-login flow and cache CUA tokens locally (0600).
 
 ```bash
 python3 scripts/cua.py auth login [--no-browser] [--timeout 300] [--session-id <id>]

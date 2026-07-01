@@ -1,8 +1,8 @@
 """Authentication orchestration for the CUA Skill CLI.
 
-Implements the OAuth device-login flow, token cache reads, and automatic
-access-token refresh against the CUA Skill Gateway. Tokens are saved to the
-local cache and are never written to stdout/stderr.
+Implements browser login through the CUA Skill Gateway, token cache reads, and
+automatic access-token refresh. Tokens are saved to the local cache and are
+never written to stdout/stderr.
 """
 
 import time
@@ -122,12 +122,13 @@ def _authorized_raw_call_once(state, base_url, method, path, body=None, query=No
 
 
 def login(state, base_url, open_browser=True, timeout=DEFAULT_LOGIN_TIMEOUT_SEC, session_id=None):
-    """Run the device-login flow and persist the resulting tokens."""
+    """Run the browser-login flow and persist the resulting tokens."""
     if session_id:
         session = {"session_id": session_id, "interval": 3, "expires_at": None,
                    "login_url": None, "user_code": None}
     else:
-        session = gateway_call("POST", base_url, "/v1/auth/device/start", body={"device": _device_label()})
+        body = {"device": _device_label()}
+        session = gateway_call("POST", base_url, "/v1/auth/device/start", body=body)
         login_url = session.get("login_url")
         if open_browser and login_url:
             try:
@@ -156,6 +157,8 @@ def login(state, base_url, open_browser=True, timeout=DEFAULT_LOGIN_TIMEOUT_SEC,
                 "user": _safe_user(user),
                 "desktop_bound": bool(data.get("desktop_bound")),
                 "scopes": _scopes(data),
+                "provider": data.get("provider") or (data.get("auth") or {}).get("provider"),
+                "identity_source": (data.get("user") or {}).get("identity_source"),
                 "access_token_expires_at": state.access_token_expires_at,
             }
         time.sleep(interval)

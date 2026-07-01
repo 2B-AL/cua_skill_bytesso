@@ -26,7 +26,7 @@ Error:
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/v1/manifest` | none | capability declaration |
-| `POST` | `/v1/auth/device/start` | none | begin device login → `session_id`, `user_code`, `login_url`, `expires_at`, `interval` |
+| `POST` | `/v1/auth/device/start` | none | begin browser login → `session_id`, `user_code`, `login_url`, `expires_at`, `interval` |
 | `POST` | `/v1/auth/device/poll` | none | poll → `{status: pending}` or the token set |
 | `POST` | `/v1/auth/refresh` | refresh token (body) | rotate + return a new token set |
 | `GET` | `/v1/auth/me` | access token | identity + scopes |
@@ -90,9 +90,10 @@ touches the platform directly.
 
 ## Auth model
 
-- Login: Bytedance SSO in the browser. `device/start` returns a `login_url`
-  pointing at Bytedance; after the user signs in, the gateway's `/v1/auth/callback`
-  resolves the identity and binds the session; `device/poll` then returns tokens.
+- Login: AL OAuth Feishu member login in the browser. `device/start` returns a
+  MemberFeishuLogin `login_url`; after the user signs in, the gateway exchanges
+  the authorization code with PKCE, reads `/inner/UserInfo`, and uses
+  `orgs[0].id`; `device/poll` then returns CUA tokens.
 - Access token: short-lived signed JWT (HS256), sent as `Authorization: Bearer`.
 - Refresh token: opaque, stored server-side only as a salted hash, rotated on
   every use; reuse of a rotated token revokes the whole session.
