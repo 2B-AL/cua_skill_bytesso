@@ -20,6 +20,7 @@ from cua_util import (
 
 ACCESS_SKEW_SEC = 60
 DEFAULT_LOGIN_TIMEOUT_SEC = 300
+DEFAULT_REFRESH_EXPIRES_IN_SEC = 30 * 24 * 3600
 
 
 def ensure_access_token(state, base_url):
@@ -141,14 +142,20 @@ def login(state, base_url, open_browser=True, timeout=DEFAULT_LOGIN_TIMEOUT_SEC,
         deadline = min(deadline, session_expiry)
 
     while now_epoch() < deadline:
-        data = gateway_call("POST", base_url, "/v1/auth/device/poll", body={"session_id": session["session_id"]})
-        if data.get("status") == "authorized" and data.get("access_token"):
+        try:
+            data = gateway_call("POST", base_url, "/v1/auth/device/poll", body={"session_id": session["session_id"]})
+        except SkillError as exc:
+            if exc.code == "AUTH_PENDING":
+                time.sleep(interval)
+                continue
+            raise
+        if data.get("access_token") and data.get("refresh_token"):
             user = _save_token_set(state, base_url, data)
             return {
                 "status": "logged_in",
                 "user": _safe_user(user),
                 "desktop_bound": bool(data.get("desktop_bound")),
-                "scopes": data.get("scopes", []),
+                "scopes": _scopes(data),
                 "access_token_expires_at": state.access_token_expires_at,
             }
         time.sleep(interval)
@@ -198,10 +205,20 @@ def _save_token_set(state, base_url, data):
         access_token=data["access_token"],
         access_token_expires_at=epoch_to_iso(now + float(data.get("expires_in", 0))),
         refresh_token=data["refresh_token"],
-        refresh_token_expires_at=epoch_to_iso(now + float(data.get("refresh_expires_in", 0))),
+        refresh_token_expires_at=epoch_to_iso(now + float(data.get("refresh_expires_in", DEFAULT_REFRESH_EXPIRES_IN_SEC))),
         desktop_bound=bool(data.get("desktop_bound")),
     )
     return user
+
+
+def _scopes(data):
+    scopes = data.get("scopes")
+    if isinstance(scopes, list):
+        return scopes
+    scope = data.get("scope")
+    if isinstance(scope, str):
+        return scope.split()
+    return []
 
 
 def _safe_user(user):
