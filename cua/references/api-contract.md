@@ -40,6 +40,7 @@ Error:
 | `POST` | `/v1/invocations/{id}/answer` | access token | submit answer (`{answer, wait_ms}`) |
 | `POST` | `/v1/invocations/{id}/cancel` | access token | request cancellation |
 | `GET` | `/v1/desktop/access` | access token | temporary desktop access URL (default desktop) |
+| `POST` | `/v1/desktop/access/revoke` | access token | revoke a temporary desktop access ticket (`{ticket}` or `{access_url}`) |
 | `GET` | `/v1/desktop/screenshot` | access token | screenshot of the default desktop |
 | `POST` | `/v1/desktop/reboot` | access token | reboot the caller's bound desktop (`{desktop_id?, idempotency_key?}`) |
 | `POST` | `/v1/desktop/reset` | access token | reset the caller's bound desktop (`{desktop_id?, confirm:true, idempotency_key?}`) |

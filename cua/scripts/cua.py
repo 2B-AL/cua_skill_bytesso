@@ -283,6 +283,23 @@ def cmd_desktop_access(args, state, session):
     }}
 
 
+def cmd_desktop_revoke_access(args, state, session):
+    base_url = resolve_base_url(args, state)
+    body = {}
+    if args.ticket:
+        body["ticket"] = args.ticket
+    if args.access_url:
+        body["access_url"] = args.access_url
+    if not body:
+        raise SkillError("VALIDATION_ERROR", "Pass --ticket <ticket> or --access-url <url>.")
+    data = cua_auth.authorized_call(
+        state, base_url, "POST", "/v1/desktop/access/revoke", body=body, retries=IDEMPOTENT_RETRIES
+    )
+    return {"data": data, "next": {
+        "agent_hint": "The old desktop access URL should no longer work. Run desktop access again if the user needs a fresh link.",
+    }}
+
+
 def cmd_desktop_lifecycle(args, state, session):
     base_url = resolve_base_url(args, state)
     body = {}
@@ -999,6 +1016,12 @@ def _add_semantic_parsers(sub):
 
     p = desktop.add_parser("access", help="Get a temporary desktop access URL.")
     p.set_defaults(handler=cmd_desktop_access, action="desktop access")
+
+    p = desktop.add_parser("revoke-access", help="Revoke a temporary desktop access ticket.")
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--ticket", help="Ticket value returned by desktop access.")
+    group.add_argument("--access-url", help="Desktop access URL containing the ticket query parameter.")
+    p.set_defaults(handler=cmd_desktop_revoke_access, action="desktop revoke-access")
 
     p = desktop.add_parser("reboot", help="Reboot the bound cloud desktop.")
     p.add_argument("--desktop", help="Desktop id. Defaults to the bound desktop.")

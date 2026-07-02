@@ -83,6 +83,8 @@ Never ask the user for CUA tokens or API keys while updating the skill.
      to see what CUA is doing, not only the raw desktop.
    Add `--include-screenshot` to also save a screenshot locally
    (`data.screenshot_file`).
+   If a temporary desktop URL may have leaked or is no longer needed, run
+   `desktop revoke-access --access-url "<url>"` to revoke its ticket immediately.
 
 You can always use `--last` instead of `--invocation-id <id>` to act on the most
 recent invocation (e.g. `watch --last`).

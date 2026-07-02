@@ -185,20 +185,23 @@ a specific desktop, then pass it to `task run --desktop`.
 python3 scripts/cua.py desktop list
 ```
 
-## desktop access / reboot / reset / operation get
+## desktop access / revoke-access / reboot / reset / operation get
 
 Desktop access returns a short-lived Desktop Gateway URL for the bound desktop.
-Lifecycle commands are asynchronous and return an operation id.
+`revoke-access` immediately invalidates a previously returned ticket. Lifecycle
+commands are asynchronous and return an operation id.
 
 ```bash
 python3 scripts/cua.py desktop access
+python3 scripts/cua.py desktop revoke-access (--ticket <ticket> | --access-url <url>)
 python3 scripts/cua.py desktop reboot [--desktop <id>] [--idempotency-key <key>]
 python3 scripts/cua.py desktop reset --confirm [--desktop <id>] [--idempotency-key <key>]
 python3 scripts/cua.py desktop operation get (--operation-id <id> | --last)
 ```
 
-Use `desktop operation get` until `data.terminal == true`. `reset` always
-requires `--confirm`.
+Use `desktop revoke-access` when a temporary access URL may have leaked or is no
+longer needed. Use `desktop operation get` until `data.terminal == true`.
+`reset` always requires `--confirm`.
 
 ## model get / model set
 
