@@ -1,11 +1,11 @@
 # Authentication
 
 The skill uses short-lived access tokens plus a rotating refresh token, obtained
-through the gateway's AL OAuth Feishu member-login flow. The CLI does not accept
-or send CloudIdentity `account_id`. During the current temporary rollout, the
-browser login page may ask the user to enter their own CloudIdentity
-`account_id`; after login the gateway resolves the user's AL organization from
-`/inner/UserInfo.orgs[0].id`. You never handle raw tokens — the script does.
+through the gateway's AL OAuth CloudIdentity v2 login flow. The CLI does not
+accept or send CloudIdentity `account_id`; the browser login goes through
+`connector_id=cloudidentityv2`, and the gateway resolves the user's AL
+organization from `/inner/UserInfo.orgs[0].id`. You never handle raw tokens —
+the script does.
 
 ## Login
 
@@ -13,8 +13,8 @@ browser login page may ask the user to enter their own CloudIdentity
    valid session. Run its `error.retry_command` (which is `auth login`).
 2. `auth login` calls the gateway, prints a `login_url` and `user_code`, and
    polls. Show the `login_url` and `user_code` to the user and ask them to finish
-   sign-in in a browser. If the browser page asks for `account_id`, the user
-   fills it there; do not pass it through the CLI.
+   CloudIdentity v2 sign-in in a browser. Do not ask for `account_id`, OAuth
+   code, token, API key, or any other credential.
 3. When the user approves, polling returns `status: "logged_in"` and tokens are
    cached locally.
 4. If `auth login` times out before the user finishes, it returns `AUTH_REQUIRED`
