@@ -91,10 +91,10 @@ touches the platform directly.
 
 ## Auth model
 
-- Login: AL OAuth Feishu member login in the browser. `device/start` returns a
-  MemberFeishuLogin `login_url`; after the user signs in, the gateway exchanges
-  the authorization code with PKCE, reads `/inner/UserInfo`, and uses
-  `orgs[0].id`; `device/poll` then returns CUA tokens.
+- Login: AL OAuth CloudIdentity v2 login in the browser. `device/start` returns
+  a `connector_id=cloudidentityv2` `login_url`; after the user signs in, the
+  gateway exchanges the authorization code with PKCE, reads `/inner/UserInfo`,
+  and uses `orgs[0].id`; `device/poll` then returns CUA tokens.
 - Access token: short-lived signed JWT (HS256), sent as `Authorization: Bearer`.
 - Refresh token: opaque, stored server-side only as a salted hash, rotated on
   every use; reuse of a rotated token revokes the whole session.

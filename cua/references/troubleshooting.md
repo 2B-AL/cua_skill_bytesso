@@ -36,7 +36,7 @@ Skill codes, so you only ever branch on the codes above — never on raw platfor
 - **"No CUA gateway configured."** The bundled `config.json` still has the
   REPLACE placeholder. Pass `--api-base-url <url>` or set
   `CUA_SKILL_API_BASE_URL`, or have the publisher fill in `config.json`.
-- **Login never completes.** The user must finish SSO in a browser at
+- **Login never completes.** The user must finish CloudIdentity v2 sign-in in a browser at
   `login_url`. Re-run `auth login --session-id <id>` (from `retry_command`) to
   keep polling. Default poll timeout is 300s; extend with `--timeout`.
 - **Task seems stuck.** `in_progress` after a wait window just means it is still

@@ -949,7 +949,7 @@ def build_parser():
     p = auth.add_parser("status", help="Check the current login state.")
     p.set_defaults(handler=cmd_auth_status, action="auth status")
 
-    p = auth.add_parser("login", help="Log in via AL OAuth Feishu member login.")
+    p = auth.add_parser("login", help="Log in via AL OAuth CloudIdentity v2 browser login.")
     p.add_argument("--no-browser", action="store_true", help="Do not try to open a browser.")
     p.add_argument("--timeout", type=int, default=cua_auth.DEFAULT_LOGIN_TIMEOUT_SEC,
                    help="Seconds to wait for login to complete.")
