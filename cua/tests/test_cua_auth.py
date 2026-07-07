@@ -8,7 +8,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cua_auth  # noqa: E402
-from cua_util import SkillError, _next_for_error, iso_to_epoch, now_epoch  # noqa: E402
+from cua_util import SkillError, iso_to_epoch, now_epoch  # noqa: E402
 
 
 class FakeState:
@@ -74,28 +74,6 @@ class CuaAuthLoginTests(unittest.TestCase):
 
         refresh_expires_at = iso_to_epoch(state.saved["refresh_token_expires_at"])
         self.assertGreaterEqual(refresh_expires_at, now_epoch() + cua_auth.DEFAULT_REFRESH_EXPIRES_IN_SEC - 5)
-
-
-class CuaErrorHintTests(unittest.TestCase):
-    def test_active_run_conflict_stops_without_followup_command(self):
-        hint = _next_for_error({
-            "code": "ACTIVE_RUN_CONFLICT",
-            "message": "A run is already active for this desktop.",
-        })
-
-        self.assertIsNotNone(hint)
-        self.assertNotIn("command", hint)
-        self.assertIn("wait until the current desktop task finishes", hint["agent_hint"])
-        self.assertIn("do not retry", hint["agent_hint"])
-
-    def test_legacy_upstream_active_message_is_treated_as_conflict(self):
-        hint = _next_for_error({
-            "code": "UpstreamError",
-            "message": "A desktop run is already active for this session.",
-        })
-
-        self.assertIsNotNone(hint)
-        self.assertNotIn("command", hint)
 
 
 if __name__ == "__main__":

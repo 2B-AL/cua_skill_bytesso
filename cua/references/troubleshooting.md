@@ -15,7 +15,7 @@ Branch on `error.code`.
 | `CONTEXT_NOT_FOUND` | 404 | wrong/unknown context id | re-check the id; use `context list` or `--last-context` |
 | `SCHEDULE_NOT_FOUND` | 404 | wrong/unknown (or deleted) schedule id | re-check with `schedule list` |
 | `ARTIFACT_NOT_FOUND` | 404 | unknown artifact, or it has no bytes | re-check with `artifact list`; a placeholder artifact has no downloadable content |
-| `ACTIVE_RUN_CONFLICT` | 409 | the cloud desktop already has an active task/run, so the new task was not started | tell the user to wait until the current desktop task finishes. Do not retry or start another task; only inspect/cancel the existing task if the user explicitly asks and the response includes a usable id |
+| `ACTIVE_RUN_CONFLICT` | 409 | the context already has a run in flight | wait for it (`task status`) before starting another |
 | `SCHEDULE_NESTING_NOT_ALLOWED` | 409 | a scheduled task tried to manage schedules | scheduled tasks cannot create/modify other schedules; do it directly |
 | `SCHEDULING_UNAVAILABLE` | 501 | this CUA backend has no scheduled-task endpoint (platform 404) | tell the user scheduling is unavailable; run the goal once with `task run`. Do NOT retry with other args or fall back to an external scheduler |
 | `PAYLOAD_TOO_LARGE` | 413 | request body too large | shorten the objective/note/answer |
@@ -41,11 +41,6 @@ Skill codes, so you only ever branch on the codes above — never on raw platfor
   keep polling. Default poll timeout is 300s; extend with `--timeout`.
 - **Task seems stuck.** `in_progress` after a wait window just means it is still
   running — `watch` again. Do not `cancel` unless the user asks.
-- **Desktop already busy.** `ACTIVE_RUN_CONFLICT` means this new request did not
-  start because another desktop task/run is active. This is not a task to watch
-  with `--last` and not a reason to try `task run` again. Tell the user to wait
-  for the current task to finish unless they explicitly ask to inspect or cancel
-  it.
 - **`access_url` won't open / expired.** Run `observe` again for a fresh URL.
 - **Unsafe permissions on the auth file.** The script repairs to `0600`
   automatically; if it cannot, fix the filesystem and retry.
