@@ -62,13 +62,6 @@ def emit_error(action, error):
 
 def _next_for_error(body):
     code = body.get("code")
-    if _is_active_run_conflict(body):
-        return {
-            "agent_hint": "The new CUA task was not started because the cloud desktop already has an active task/run. "
-            "Stop here for this user request: do not retry, do not call delegate/task run/task continue again, "
-            "and do not probe with observe/diagnose/watch --last unless the user explicitly asks to inspect or cancel "
-            "the existing task. Tell the user to wait until the current desktop task finishes, then try again.",
-        }
     retry = body.get("retry_command")
     if code in ("AUTH_REQUIRED", "REFRESH_FAILED") and retry:
         return {
@@ -91,19 +84,6 @@ def _next_for_error(body):
             "prefer `watch --last` or `result --last`).",
         }
     return None
-
-
-def _is_active_run_conflict(body):
-    code = str(body.get("code") or "").strip()
-    if code in ("ACTIVE_RUN_CONFLICT", "active_run_conflict", "ActiveTaskRunning"):
-        return True
-    message = str(body.get("message") or "").lower()
-    return code == "UpstreamError" and (
-        "already active" in message
-        or "active task" in message
-        or "active run" in message
-        or "desktop run is already active" in message
-    )
 
 
 def _print(payload):
