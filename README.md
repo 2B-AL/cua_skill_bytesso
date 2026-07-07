@@ -14,7 +14,7 @@ Related repos:
 
 - Access Hub: [`2B-AL/cua-mcp-access-hub`](https://github.com/2B-AL/cua-mcp-access-hub)
 - Skill MCP Gateway: [`2B-AL/cua-mcp-server`](https://github.com/2B-AL/cua-mcp-server)
-- Bare-metal CUA runtime: [`2B-AL/my-cua`](https://github.com/2B-AL/my-cua)
+- Bare-metal CUA runtime: [`luohao.brian/my-cua`](https://code.byted.org/luohao.brian/my-cua)
 
 ## Install
 
