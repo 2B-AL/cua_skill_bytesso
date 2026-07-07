@@ -21,6 +21,13 @@ Error:
   "error": { "code": "TOKEN_EXPIRED", "message": "Access token expired.", "retryable": true } }
 ```
 
+`ACTIVE_RUN_CONFLICT` is a 409 admission result, not a started task. The gateway
+may include diagnostic fields such as `conflict_scope`, `active_run`,
+`active_task`, `active_task_id`, or `allowed_actions`; these fields are
+sanitized context for explaining the conflict. Do not treat them as a command to
+probe automatically. Tell the user to wait unless they explicitly ask to inspect
+or cancel the existing task.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |

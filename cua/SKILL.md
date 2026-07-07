@@ -65,6 +65,13 @@ Never ask the user for CUA tokens or API keys while updating the skill.
    - It returns almost immediately with `data.invocation_id` and
      `outcome: in_progress`. Note `data.invocation_id`. Do NOT call `delegate`
      again for the same request — that starts a second task.
+   - If `delegate`, `task run`, or `task continue` returns `ACTIVE_RUN_CONFLICT`
+     (or raw `active_run_conflict` / `ActiveTaskRunning`), the new task was NOT
+     started because the cloud desktop already has an active task/run. Stop
+     there: tell the user the desktop is busy and they should wait until the
+     current task finishes. Do not retry, do not start another task, and do not
+     probe with `watch --last`, `diagnose`, or `observe` unless the user
+     explicitly asks to inspect or cancel the existing task.
 3. **Drive the outcome** in `data.outcome`:
    - `in_progress` → run `next.command` (a `watch`). Each `watch` returns quickly
      (~20s); just call it again while it stays `in_progress`. For a long task you
@@ -149,6 +156,10 @@ the user's intent clearly calls for it:
   `input_request`, or a screenshot.
 - While `outcome == in_progress`, do not answer the delegated task yourself and
   do not switch to your own browser/search tools — keep watching.
+- An `ACTIVE_RUN_CONFLICT` / `active_run_conflict` / `ActiveTaskRunning` error
+  is a terminal admission result for the new request, not an in-progress task
+  and not a transient failure. The new task did not start. Tell the user to wait
+  for the current desktop task to finish; retry only after the user asks.
 - A `GATEWAY_TIMEOUT` / `CUA_BACKEND_UNAVAILABLE` error is transient, NOT a
   failure: the task is still running. Just re-run the same command (`watch --last`
   or `result --last`). Never restart with a new `delegate`.
