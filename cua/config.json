@@ -1,4 +1,6 @@
 {
-  "_comment": "Bundled default CUA Skill Gateway (REST) URL — the skill is zero-config: install and use. Users can still override per-call with --api-base-url or with the CUA_SKILL_API_BASE_URL env var (both take precedence over this).",
-  "api_base_url": "http://sd8t2n41jtbcjjsjsngqg.apigateway-cn-beijing.volceapi.com"
+  "access_hub_base_url": "http://10.37.98.200/cua-access",
+  "skill_mcp_url": "http://10.37.98.200/skill/mcp",
+  "mcp_server_name": "cua_skill_v2",
+  "mcp_transport": "MCP Streamable HTTP"
 }

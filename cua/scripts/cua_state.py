@@ -1,10 +1,8 @@
-"""Local caches for the CUA Skill CLI.
+"""Local caches for the ByteSSO CUA Skill CLI.
 
-`AuthState` stores the API base URL, user identity, and access/refresh tokens in
-a 0600 file at ~/.openclaw/cua-skill/auth.json (override with CUA_SKILL_AUTH_FILE).
-`SessionState` remembers the last invocation id so weak agents can run
-`watch --last`. Permissions are repaired automatically; if repair fails the CLI
-refuses to continue so tokens are never left world-readable.
+`AuthState` stores endpoint choices and the Access Hub Bearer Key in a 0600 file
+at ~/.openclaw/cua-skill-bytesso/auth.json. `SessionState` remembers the latest
+invocation id for `watch --last` style commands.
 """
 
 import json
@@ -15,7 +13,7 @@ from pathlib import Path
 
 from cua_util import SkillError
 
-DEFAULT_DIR = Path.home() / ".openclaw" / "cua-skill"
+DEFAULT_DIR = Path.home() / ".openclaw" / "cua-skill-bytesso"
 DEFAULT_AUTH_FILE = DEFAULT_DIR / "auth.json"
 DEFAULT_SESSION_FILE = DEFAULT_DIR / "session.json"
 
@@ -33,8 +31,6 @@ def session_file_path():
 
 
 class _JsonFile:
-    """A 0600 JSON file with atomic writes and permission repair."""
-
     def __init__(self, path, data):
         self.path = path
         self.data = data
@@ -76,49 +72,43 @@ class AuthState(_JsonFile):
         return super().load(auth_file_path())
 
     @property
-    def api_base_url(self):
-        return self.data.get("api_base_url")
+    def access_hub_base_url(self):
+        return self.data.get("access_hub_base_url")
 
     @property
-    def access_token(self):
-        return self.data.get("access_token")
+    def mcp_url(self):
+        return self.data.get("mcp_url")
 
     @property
-    def refresh_token(self):
-        return self.data.get("refresh_token")
-
-    @property
-    def access_token_expires_at(self):
-        return self.data.get("access_token_expires_at")
-
-    @property
-    def desktop_bound(self):
-        return bool(self.data.get("desktop_bound"))
+    def bearer_key(self):
+        return self.data.get("bearer_key")
 
     @property
     def user(self):
         return self.data.get("user") or {}
 
-    def set_api_base_url(self, base_url):
-        self.data["api_base_url"] = base_url
-        self.save()
+    def set_endpoints(self, *, access_hub_base_url, mcp_url):
+        changed = False
+        if access_hub_base_url and self.data.get("access_hub_base_url") != access_hub_base_url:
+            self.data["access_hub_base_url"] = access_hub_base_url
+            changed = True
+        if mcp_url and self.data.get("mcp_url") != mcp_url:
+            self.data["mcp_url"] = mcp_url
+            changed = True
+        if changed:
+            self.save()
 
-    def set_tokens(self, *, api_base_url, user, access_token, access_token_expires_at,
-                   refresh_token, refresh_token_expires_at, desktop_bound):
+    def set_bearer_key(self, *, access_hub_base_url, mcp_url, bearer_key, user=None):
         self.data.update({
-            "api_base_url": api_base_url,
-            "user": user,
-            "access_token": access_token,
-            "access_token_expires_at": access_token_expires_at,
-            "refresh_token": refresh_token,
-            "refresh_token_expires_at": refresh_token_expires_at,
-            "desktop_bound": desktop_bound,
+            "access_hub_base_url": access_hub_base_url,
+            "mcp_url": mcp_url,
+            "bearer_key": bearer_key,
+            "user": user or {},
         })
         self.save()
 
     def clear_tokens(self):
-        for key in ("access_token", "access_token_expires_at", "refresh_token",
-                    "refresh_token_expires_at", "user", "desktop_bound"):
+        for key in ("bearer_key", "user"):
             self.data.pop(key, None)
         self.save()
 
@@ -137,44 +127,6 @@ class SessionState(_JsonFile):
             return
         self.data["last_invocation_id"] = invocation_id
         self.save()
-
-    # The semantic command surface (task/context/schedule/artifact) remembers the
-    # most recent id of each kind so weak agents can use `--last-*` instead of
-    # threading ids through every call.
-    @property
-    def last_task_id(self):
-        # A task is backed by an invocation; they share the same id space.
-        return self.data.get("last_task_id") or self.data.get("last_invocation_id")
-
-    @property
-    def last_context_id(self):
-        return self.data.get("last_context_id")
-
-    @property
-    def last_schedule_id(self):
-        return self.data.get("last_schedule_id")
-
-    @property
-    def last_artifact_id(self):
-        return self.data.get("last_artifact_id")
-
-    @property
-    def last_operation_id(self):
-        return self.data.get("last_operation_id")
-
-    def set_last(self, **ids):
-        """Persist any of last_task_id / last_context_id / last_schedule_id /
-        last_artifact_id / last_invocation_id / last_operation_id that are
-        provided and non-empty."""
-        changed = False
-        for key in ("last_task_id", "last_context_id", "last_schedule_id",
-                    "last_artifact_id", "last_invocation_id", "last_operation_id"):
-            value = ids.get(key)
-            if value and self.data.get(key) != value:
-                self.data[key] = value
-                changed = True
-        if changed:
-            self.save()
 
 
 def _ensure_secure_permissions(path):

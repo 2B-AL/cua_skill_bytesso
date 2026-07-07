@@ -1,55 +1,59 @@
-# Authentication
+# Auth
 
-The skill uses short-lived access tokens plus a rotating refresh token, obtained
-through the gateway's AL OAuth CloudIdentity v2 login flow. The CLI does not
-accept or send CloudIdentity `account_id`; the browser login goes through
-`connector_id=cloudidentityv2`, and the gateway resolves the user's AL
-organization from `/inner/UserInfo.orgs[0].id`. You never handle raw tokens —
-the script does.
+This skill uses the bare-metal Access Hub ByteSSO flow.
 
-## Login
+## Flow
 
-1. A business command (or `auth status`) returns `AUTH_REQUIRED` when there is no
-   valid session. Run its `error.retry_command` (which is `auth login`).
-2. `auth login` calls the gateway, prints a `login_url` and `user_code`, and
-   polls. Show the `login_url` and `user_code` to the user and ask them to finish
-   CloudIdentity v2 sign-in in a browser. Do not ask for `account_id`, OAuth
-   code, token, API key, or any other credential.
-3. When the user approves, polling returns `status: "logged_in"` and tokens are
-   cached locally.
-4. If `auth login` times out before the user finishes, it returns `AUTH_REQUIRED`
-   with a `retry_command` that includes `--session-id`; run it to keep polling
-   the same login session.
+1. Run:
 
-Never ask the user to paste a token or API key. Never write an Authorization
-header yourself.
+   ```bash
+   python3 <skill_dir>/scripts/cua.py auth login
+   ```
 
-## Token cache
+2. The script opens:
 
-- Location: `~/.openclaw/cua-skill/auth.json` (override with `CUA_SKILL_AUTH_FILE`).
-- Directory mode `0700`, file mode `0600`; the script repairs unsafe permissions
-  and refuses to continue if it cannot.
-- `auth.json` holds the access token, refresh token, expiry timestamps, the API
-  base URL, `desktop_bound`, and a minimal user record (org/user/email).
-- `session.json` (same directory) holds only `last_invocation_id` for `--last`.
+   ```text
+   http://10.37.98.200/cua-access/mcp/setup
+   ```
 
-## Automatic refresh
+3. The user finishes ByteSSO login in the browser.
+4. Access Hub allocates or resolves the user's CUA desktop.
+5. The user generates an Access Hub Bearer Key that starts with `cua_mcp_`.
+6. The user pastes that key into the script's hidden prompt.
+7. The script validates the key with read-only `cua_ping` and stores it in:
 
-Before each business call the script ensures a valid access token: if it is
-expiring it silently refreshes using the refresh token (which the server rotates
-on every use). You do not need to do anything.
+   ```text
+   ~/.openclaw/cua-skill-bytesso/auth.json
+   ```
 
-## Error handling
+The script uses `Authorization: Bearer <cua_mcp_...>` for all calls to the CUA
+Skill MCP endpoint.
 
-| code | meaning | action |
-| --- | --- | --- |
-| `AUTH_REQUIRED` | no/invalid session | run `error.retry_command` (login), then retry |
-| `TOKEN_EXPIRED` | access token expired | the script auto-refreshes; if it still fails it becomes `REFRESH_FAILED` |
-| `REFRESH_FAILED` | refresh token invalid/expired/reused | run `error.retry_command` (login) again |
-| `FORBIDDEN` | missing scope / not permitted | tell the user they lack permission |
-| `DESKTOP_NOT_BOUND` | no CUA desktop allocated | tell the user CUA is not provisioned; contact admin |
+## Non-Interactive Setup
 
-## Logout
+Use stdin, not a command-line argument:
 
-`auth logout` revokes the refresh token server-side and clears the local cache.
-After logout the old refresh token cannot be reused.
+```bash
+printf '%s' "$CUA_MCP_KEY" | python3 <skill_dir>/scripts/cua.py auth login --bearer-key-stdin
+```
+
+The environment variable `CUA_SKILL_BEARER_KEY` is also supported for temporary
+sessions. Prefer the local encrypted/permissioned Agent config or the CLI cache
+over long-lived shell environment variables.
+
+## Endpoint Overrides
+
+```bash
+export CUA_SKILL_ACCESS_HUB_BASE_URL=http://10.37.98.200/cua-access
+export CUA_SKILL_MCP_URL=http://10.37.98.200/skill/mcp
+```
+
+The bundled defaults live in `config.json`.
+
+## Security Rules
+
+- Do not paste Bearer Keys into chat.
+- Do not pass Bearer Keys as command-line arguments.
+- Do not commit Bearer Keys, API Keys, SSO secrets, or internal tokens.
+- Do not log full request headers.
+- Run `auth logout` before handing a machine to another user.

@@ -1,4 +1,6 @@
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -8,72 +10,66 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cua_auth  # noqa: E402
-from cua_util import SkillError, iso_to_epoch, now_epoch  # noqa: E402
+from cua_state import AuthState  # noqa: E402
+from cua_util import SkillError  # noqa: E402
 
 
-class FakeState:
-    def __init__(self):
-        self.saved = {}
-        self.access_token_expires_at = None
-
-    def set_tokens(self, **kwargs):
-        self.saved = kwargs
-        self.access_token_expires_at = kwargs["access_token_expires_at"]
-
-
-class CuaAuthLoginTests(unittest.TestCase):
-    def test_login_waits_on_auth_pending_and_accepts_token_response_without_status(self):
-        state = FakeState()
-        responses = [
-            SkillError("AUTH_PENDING", "SSO login is still pending"),
+class CuaAuthTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.auth_file = Path(self.tmpdir.name) / "auth.json"
+        self.env = mock.patch.dict(
+            os.environ,
             {
-                "access_token": "access-token",
-                "expires_in": 3600,
-                "refresh_token": "refresh-token",
-                "scope": "cua:read cua:invoke",
-                "desktop_bound": True,
-                "user": {
-                    "org_id": "bytedance",
-                    "user_id": "user-1",
-                    "email": "user@example.com",
-                },
+                "CUA_SKILL_AUTH_FILE": str(self.auth_file),
             },
-        ]
+            clear=False,
+        )
+        self.env.start()
 
-        def fake_gateway_call(method, base_url, path, body=None, **_kwargs):
-            self.assertEqual(method, "POST")
-            self.assertEqual(base_url, "http://gateway")
-            self.assertEqual(path, "/v1/auth/device/poll")
-            self.assertEqual(body, {"session_id": "sess-1"})
-            value = responses.pop(0)
-            if isinstance(value, Exception):
-                raise value
-            return value
+    def tearDown(self):
+        self.env.stop()
+        self.tmpdir.cleanup()
 
-        with mock.patch.object(cua_auth, "gateway_call", side_effect=fake_gateway_call), \
-                mock.patch.object(cua_auth.time, "sleep") as sleep:
-            result = cua_auth.login(state, "http://gateway", timeout=30, session_id="sess-1")
+    def test_auth_status_without_key_is_logged_out(self):
+        state = AuthState.load()
+
+        result = cua_auth.auth_status(state, "http://hub", "http://mcp", online=False)
+
+        self.assertEqual(result["status"], "logged_out")
+        self.assertEqual(result["login_url"], "http://hub/mcp/setup")
+        self.assertIn("auth login", result["retry_command"])
+
+    def test_login_stores_bearer_key_after_ping_validation(self):
+        state = AuthState.load()
+        ping = {
+            "auth": {
+                "auth_type": "access_hub_mcp_key",
+                "org_id": "org-1",
+                "user_id": "user-1",
+                "team_id": None,
+                "desktop_bound": True,
+            }
+        }
+
+        with mock.patch.object(cua_auth, "_read_login_token", return_value="cua_mcp_test"), \
+                mock.patch.object(cua_auth, "mcp_tool_call", return_value=ping) as call, \
+                mock.patch.object(cua_auth.webbrowser, "open"):
+            result = cua_auth.login(state, "http://hub", "http://mcp")
 
         self.assertEqual(result["status"], "logged_in")
-        self.assertEqual(result["scopes"], ["cua:read", "cua:invoke"])
-        self.assertTrue(result["desktop_bound"])
-        self.assertEqual(state.saved["access_token"], "access-token")
-        self.assertEqual(state.saved["refresh_token"], "refresh-token")
-        sleep.assert_called_once_with(3)
+        self.assertEqual(state.bearer_key, "cua_mcp_test")
+        self.assertEqual(state.user["user_id"], "user-1")
+        call.assert_called_once_with("http://mcp", "cua_mcp_test", "cua_ping", {}, timeout=30)
 
-    def test_save_token_set_defaults_refresh_expiry_when_gateway_omits_it(self):
-        state = FakeState()
+    def test_login_rejects_non_access_hub_key(self):
+        state = AuthState.load()
 
-        cua_auth._save_token_set(state, "http://gateway", {
-            "access_token": "access-token",
-            "expires_in": 900,
-            "refresh_token": "refresh-token",
-            "desktop_bound": True,
-            "user": {"org_id": "bytedance", "user_id": "user-1"},
-        })
+        with mock.patch.object(cua_auth, "_read_login_token", return_value="not-a-cua-key"), \
+                self.assertRaises(SkillError) as ctx:
+            cua_auth.login(state, "http://hub", "http://mcp", open_browser=False)
 
-        refresh_expires_at = iso_to_epoch(state.saved["refresh_token_expires_at"])
-        self.assertGreaterEqual(refresh_expires_at, now_epoch() + cua_auth.DEFAULT_REFRESH_EXPIRES_IN_SEC - 5)
+        self.assertEqual(ctx.exception.code, "VALIDATION_ERROR")
 
 
 if __name__ == "__main__":

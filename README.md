@@ -1,62 +1,75 @@
-# CUA Skill
+# CUA ByteSSO Skill
 
-Delegate computer-use tasks to CUA (an autonomous cloud-desktop agent) from any
-Skill-capable agent. The skill talks to the CUA Skill Gateway over HTTPS; it
-needs only Python 3 and the standard library — no MCP, curl, npm, or tokens.
+This repo is the ByteSSO/Access Hub variant of
+[`2B-AL/cua_skill`](https://github.com/2B-AL/cua_skill). It keeps the same
+install shape (`cua/` is the actual skill) but targets the bare-metal trial
+environment:
+
+- Access Hub: `http://10.37.98.200/cua-access`
+- CUA Skill MCP: `http://10.37.98.200/skill/mcp`
+- Auth credential: Access Hub Bearer Key (`cua_mcp_...`) generated after
+  ByteSSO login
+
+Related repos:
+
+- Access Hub: [`2B-AL/cua-mcp-access-hub`](https://github.com/2B-AL/cua-mcp-access-hub)
+- Skill MCP Gateway: [`2B-AL/cua-mcp-server`](https://github.com/2B-AL/cua-mcp-server)
+- Bare-metal CUA runtime: [`2B-AL/my-cua`](https://github.com/2B-AL/my-cua)
 
 ## Install
 
-The skill lives in the [`cua/`](cua/) subdirectory of this repo. Install that
-subdirectory (do **not** install the repo root):
+Install the `cua/` subdirectory, not the repo root:
 
 ```bash
-# with the `skills` CLI
-npx -y skills add 2B-AL/cua_skill --full-depth --skill cua --agent '*' -g --copy -y
+npx -y skills add 2B-AL/cua_skill_bytesso --full-depth --skill cua --agent '*' -g --copy -y
 ```
 
-`--full-depth --skill cua` makes the installer discover the `cua/` subdirectory
-as the actual skill. `--copy` installs a self-contained snapshot into the target
-agent directories.
-
-After install, verify it landed completely (this creates no CUA task):
+Verify the local install without creating a CUA task:
 
 ```bash
 python3 <skill_dir>/scripts/cua.py self-test
-# expect {"ok": true, "action": "self-test", ...}; "logged_in": false is fine before first login
 ```
 
-If `self-test` errors that `scripts/…` is missing, the checkout was incomplete —
-re-install the `cua/` subdirectory (or do a full, non-sparse clone).
+## Login
+
+```bash
+python3 <skill_dir>/scripts/cua.py auth login
+```
+
+The script opens the Access Hub MCP setup page. Finish ByteSSO login in the
+browser, generate an Access Hub Bearer Key, then paste it into the hidden prompt.
+The key is stored in `~/.openclaw/cua-skill-bytesso/auth.json` with `0600`
+permissions.
+
+For non-interactive setup, pass the key through stdin:
+
+```bash
+printf '%s' "$CUA_MCP_KEY" | python3 <skill_dir>/scripts/cua.py auth login --bearer-key-stdin
+```
+
+Do not put Bearer Keys in command lines, repo files, README examples, logs, or
+chat messages.
 
 ## Use
 
-Everything goes through one script; see [`cua/SKILL.md`](cua/SKILL.md) for the
-fixed workflow and [`cua/references/`](cua/references/) for details.
-
 ```bash
-python3 <skill_dir>/scripts/cua.py auth login     # Bytedance SSO in the browser
+python3 <skill_dir>/scripts/cua.py ping
 python3 <skill_dir>/scripts/cua.py delegate --objective "<the user's request>"
 python3 <skill_dir>/scripts/cua.py watch --last
 ```
 
-Zero-config: the gateway URL is baked into [`cua/config.json`](cua/config.json).
-Override per call with `--api-base-url <url>` or the `CUA_SKILL_API_BASE_URL`
-environment variable.
+Override endpoints without editing the repo:
+
+```bash
+export CUA_SKILL_ACCESS_HUB_BASE_URL=http://10.37.98.200/cua-access
+export CUA_SKILL_MCP_URL=http://10.37.98.200/skill/mcp
+```
 
 ## Update
-
-If CUA Skill was installed with a recent `skills` CLI, update it in place:
 
 ```bash
 npx -y skills update cua -g -y
 ```
 
-If the CLI says the skill cannot be updated automatically, refresh it by
-installing from GitHub again:
-
-```bash
-npx -y skills add 2B-AL/cua_skill --full-depth --skill cua --agent '*' -g --copy -y
-```
-
-Restart the target agent after updating so it reloads the new `SKILL.md` and
-scripts.
+If automatic update is unavailable, reinstall from this repo with the install
+command above and restart the target agent session.

@@ -1,9 +1,10 @@
-display_name: CUA
-short_description: Delegate computer-use tasks to an authenticated cloud desktop and configure its default model.
+display_name: CUA ByteSSO
+short_description: Delegate computer-use tasks to CUA through ByteSSO Access Hub and the CUA Skill MCP endpoint.
 default_prompt: >-
-  Use the CUA skill to run the user's computer-use task on a cloud desktop. Drive
-  everything through scripts/cua.py: check auth, delegate the user's original
-  objective, then watch until the outcome is completed, needs_input, failed, or
-  cancelled. Relay any question to the user and submit their answer. Use
-  result.text as the authoritative final result. Use model get/set only when the
-  user explicitly asks to inspect or change CUA's default model. Never ask for a token.
+  Use the CUA ByteSSO skill to run the user's computer-use task on an
+  authenticated CUA cloud desktop. Drive everything through scripts/cua.py:
+  check auth, delegate the user's original objective, then watch until the
+  outcome is completed, needs_input, failed, or cancelled. Relay any CUA
+  question to the user and submit the user's answer. Use result.text as the
+  authoritative final result. Keep Access Hub Bearer Keys out of prompts, logs,
+  command lines, and repo files.
