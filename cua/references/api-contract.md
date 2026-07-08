@@ -5,10 +5,12 @@ The CLI talks to the AP-style CUA Skill Gateway:
 ```text
 GET  http://10.37.98.200/skill/manifest
 POST http://10.37.98.200/skill/tools/{tool}
-Authorization: Bearer cua_mcp_...
+Authorization: Bearer cua_api_...
 Content-Type: application/json
 Accept: application/json
 ```
+
+Legacy `cua_mcp_...` bearer keys are still accepted for compatibility.
 
 ## Tools Used By This Skill
 

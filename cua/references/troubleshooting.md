@@ -10,7 +10,7 @@ Branch on `error.code`.
 
 | code | cause | what to do |
 | --- | --- | --- |
-| `AUTH_REQUIRED` | no Bearer Key, revoked key, or missing auth header | run `error.retry_command`, finish ByteSSO in Access Hub, generate a key, then retry |
+| `AUTH_REQUIRED` | no local CUA credential, revoked token, expired login flow, or missing auth header | run `error.retry_command`, open the login URL, finish ByteSSO, then retry |
 | `FORBIDDEN` | the key is valid but not allowed for this action | tell the user they lack permission |
 | `DESKTOP_NOT_BOUND` | Access Hub has not allocated a CUA desktop for the user | open Access Hub resources/setup page and allocate or contact an admin |
 | `INVOCATION_NOT_FOUND` | wrong invocation id | use the id from `delegate` or run with `--last` |
@@ -24,12 +24,12 @@ Branch on `error.code`.
 
 ## Common Situations
 
-- **`Expected an Access Hub Bearer Key starting with 'cua_mcp_'`**: The v1
-  ByteSSO flow expects the legacy/direct Access Hub Bearer Key, not an OAuth
-  access token.
-- **Login page opens but no key is shown**: Finish ByteSSO, go to the MCP setup
-  page, and click generate Bearer Key.
-- **Key worked yesterday but fails now**: It may have been revoked or the Access
-  Hub HMAC secret may have rotated. Generate a new key.
+- **`Expected an Access Hub bearer token starting with 'cua_api_' or 'cua_mcp_'`**:
+  rerun `auth login`; do not paste an OAuth access token or browser cookie.
+- **Login page opens but the command keeps waiting**: make sure the browser
+  completes the Access Hub callback page. If the flow expires, rerun
+  `auth login`.
+- **Token worked yesterday but fails now**: it may have been revoked or the
+  Access Hub HMAC secret may have rotated. Rerun `auth login`.
 - **`self-test` passes but `self-test --online` fails**: Local install is fine;
   investigate network, Skill Gateway, Access Hub key, or desktop allocation.

@@ -7,8 +7,8 @@ environment:
 
 - Access Hub: `http://10.37.98.200/cua-access`
 - CUA Skill Gateway: `http://10.37.98.200`
-- Auth credential: Access Hub Bearer Key (`cua_mcp_...`) generated after
-  ByteSSO login
+- Auth credential: Access Hub CUA API token (`cua_api_...`) returned after
+  browser ByteSSO login
 
 Related repos:
 
@@ -36,18 +36,18 @@ python3 <skill_dir>/scripts/cua.py self-test
 python3 <skill_dir>/scripts/cua.py auth login
 ```
 
-The script opens the Access Hub MCP setup page. Finish ByteSSO login in the
-browser, generate an Access Hub Bearer Key, then paste it into the hidden prompt.
-The key is stored in `~/.openclaw/cua-skill-bytesso/auth.json` with `0600`
+The script prints and opens an Access Hub ByteSSO login URL. Finish login in the
+browser; the script polls Access Hub and stores the returned local CUA
+credential in `~/.openclaw/cua-skill-bytesso/auth.json` with `0600`
 permissions.
 
-For non-interactive setup, pass the key through stdin:
+Legacy `cua_mcp_...` bearer keys can still be loaded through stdin:
 
 ```bash
 printf '%s' "$CUA_MCP_KEY" | python3 <skill_dir>/scripts/cua.py auth login --bearer-key-stdin
 ```
 
-Do not put Bearer Keys in command lines, repo files, README examples, logs, or
+Do not put bearer tokens in command lines, repo files, README examples, logs, or
 chat messages.
 
 ## Use

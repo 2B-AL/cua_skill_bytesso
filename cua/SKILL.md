@@ -29,9 +29,9 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    python3 <skill_dir>/scripts/cua.py auth login
    ```
 
-   Open the Access Hub setup URL, finish ByteSSO login, generate a Bearer Key,
-   and paste it only into the script's hidden prompt or stdin. Never place a
-   Bearer Key in chat, command-line arguments, repo files, or logs.
+   Open the login URL printed by the command, finish ByteSSO in the browser,
+   then wait for the command to store the returned local CUA credential. Never
+   place bearer tokens in chat, command-line arguments, repo files, or logs.
 
 3. For real work, call `delegate` with the user's original objective:
 
@@ -73,5 +73,6 @@ read [auth.md](references/auth.md). For output states, read
 - Treat progress summaries and screenshots as status signals only.
 - Use `watch` to decide task completion; do not use `observe` for completion.
 - Use `cancel` only when the user explicitly asks to stop.
-- Keep credentials local and secret. The script stores the Access Hub Bearer Key
-  under `~/.openclaw/cua-skill-bytesso/` with restrictive permissions.
+- Keep credentials local and secret. The script stores the Access Hub CUA
+  credential under `~/.openclaw/cua-skill-bytesso/` with restrictive
+  permissions.

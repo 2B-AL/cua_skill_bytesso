@@ -82,6 +82,10 @@ class AuthState(_JsonFile):
         return self.data.get("bearer_key")
 
     @property
+    def credential_type(self):
+        return self.data.get("credential_type")
+
+    @property
     def user(self):
         return self.data.get("user") or {}
 
@@ -96,17 +100,18 @@ class AuthState(_JsonFile):
         if changed:
             self.save()
 
-    def set_bearer_key(self, *, access_hub_base_url, gateway_url, bearer_key, user=None):
+    def set_bearer_key(self, *, access_hub_base_url, gateway_url, bearer_key, user=None, credential_type=None):
         self.data.update({
             "access_hub_base_url": access_hub_base_url,
             "gateway_url": gateway_url,
             "bearer_key": bearer_key,
+            "credential_type": credential_type or "access_hub_bearer",
             "user": user or {},
         })
         self.save()
 
     def clear_tokens(self):
-        for key in ("bearer_key", "user"):
+        for key in ("bearer_key", "credential_type", "user"):
             self.data.pop(key, None)
         self.save()
 

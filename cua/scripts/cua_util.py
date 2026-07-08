@@ -1,7 +1,7 @@
 """Shared helpers for the ByteSSO CUA Skill CLI.
 
 Stdlib only. Provides the unified JSON output contract and a structured error
-type. The CLI never prints Bearer Keys, the user's objective, the user's
+type. The CLI never prints bearer tokens, the user's objective, the user's
 answers, CUA's final result text, or screenshot bytes outside the structured
 response contract.
 """
@@ -66,7 +66,7 @@ def _next_for_error(body):
         return {
             "command": retry,
             "agent_hint": "Open login_url for ByteSSO/Access Hub, run retry_command, "
-            "then re-run the original command. Keep Bearer Keys out of command lines, "
+            "then re-run the original command. Keep bearer tokens out of command lines, "
             "repo files, logs, and chat; use hidden input or --bearer-key-stdin.",
         }
     if code == "TOKEN_EXPIRED" and retry:

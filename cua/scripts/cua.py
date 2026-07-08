@@ -452,13 +452,13 @@ def build_parser():
     p.add_argument("--offline", action="store_true", help="Do not validate the credential online.")
     p.set_defaults(action="auth.status", handler=cmd_auth_status)
 
-    p = auth_sub.add_parser("login", help="Open Access Hub and store the generated Bearer Key.")
-    p.add_argument("--no-browser", action="store_true", help="Print/use the setup URL without opening a browser.")
-    p.add_argument("--bearer-key-stdin", action="store_true", help="Read the Bearer Key from stdin.")
+    p = auth_sub.add_parser("login", help="Open Access Hub SSO and store the returned CUA credential.")
+    p.add_argument("--no-browser", action="store_true", help="Print the login URL without opening a browser.")
+    p.add_argument("--bearer-key-stdin", action="store_true", help="Read a legacy Access Hub bearer key from stdin.")
     p.add_argument("--no-validate", action="store_true", help="Store the key without calling the gateway.")
     p.set_defaults(action="auth.login", handler=cmd_auth_login)
 
-    p = auth_sub.add_parser("logout", help="Remove the local Bearer Key cache.")
+    p = auth_sub.add_parser("logout", help="Remove the local CUA credential cache.")
     p.set_defaults(action="auth.logout", handler=cmd_auth_logout)
 
     p = sub.add_parser("ping", help="Read-only connectivity check.")
