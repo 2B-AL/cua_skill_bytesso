@@ -62,7 +62,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
 
 For exact arguments, read [commands.md](references/commands.md). For auth setup,
 read [auth.md](references/auth.md). For output states, read
-[outcomes.md](references/outcomes.md). For MCP contract details, read
+[outcomes.md](references/outcomes.md). For Skill Gateway contract details, read
 [api-contract.md](references/api-contract.md). For errors, read
 [troubleshooting.md](references/troubleshooting.md).
 

@@ -2,29 +2,23 @@
 """CUA Skill CLI for the ByteSSO Access Hub environment.
 
 Every invocation prints exactly one JSON object. Credentials, objectives,
-answers, final CUA text, and screenshot bytes are never printed by the script
-outside the structured response contract.
+answers, final CUA text, and screenshot bytes are never printed outside the
+structured response contract.
 """
 
 import argparse
 import base64
 import json
+import math
 import os
 import sys
 import tempfile
 from pathlib import Path
 
 import cua_auth
-from cua_http import extract_tool_payload, mcp_tool_call_raw
+from cua_http import gateway_manifest, gateway_tool_call
 from cua_state import AuthState, SessionState
-from cua_util import (
-    SkillError,
-    emit_error,
-    emit_success,
-    ext_for_mime,
-    login_retry_command,
-    script_path,
-)
+from cua_util import SkillError, emit_error, emit_success, ext_for_mime, script_path
 
 IDEMPOTENT_RETRIES = 2
 TERMINAL_OUTCOMES = ("completed", "failed", "cancelled")
@@ -50,9 +44,6 @@ def main(argv=None):
         emit_error(action, SkillError("INTERNAL", str(exc)))
 
 
-# -- configuration ---------------------------------------------------------
-
-
 def resolve_urls(args, state, persist=False):
     cfg = bundled_config()
     access_hub = (
@@ -61,10 +52,13 @@ def resolve_urls(args, state, persist=False):
         or state.access_hub_base_url
         or cfg.get("access_hub_base_url")
     )
-    mcp_url = (
-        args.mcp_url
+    gateway_url = (
+        args.gateway_url
+        or os.environ.get("CUA_SKILL_GATEWAY_URL")
         or os.environ.get("CUA_SKILL_MCP_URL")
-        or state.mcp_url
+        or state.gateway_url
+        or cfg.get("skill_gateway_url")
+        or cfg.get("gateway_url")
         or cfg.get("skill_mcp_url")
         or cfg.get("mcp_url")
     )
@@ -74,17 +68,17 @@ def resolve_urls(args, state, persist=False):
             "No Access Hub URL configured. Set access_hub_base_url in config.json, "
             "pass --access-hub-base-url, or set CUA_SKILL_ACCESS_HUB_BASE_URL.",
         )
-    if not mcp_url:
+    if not gateway_url:
         raise SkillError(
             "VALIDATION_ERROR",
-            "No CUA Skill MCP URL configured. Set skill_mcp_url in config.json, "
-            "pass --mcp-url, or set CUA_SKILL_MCP_URL.",
+            "No CUA Skill Gateway URL configured. Set skill_gateway_url in config.json, "
+            "pass --gateway-url, or set CUA_SKILL_GATEWAY_URL.",
         )
     access_hub = access_hub.rstrip("/")
-    mcp_url = mcp_url.rstrip("/")
+    gateway_url = gateway_url.rstrip("/")
     if persist:
-        state.set_endpoints(access_hub_base_url=access_hub, mcp_url=mcp_url)
-    return access_hub, mcp_url
+        state.set_endpoints(access_hub_base_url=access_hub, gateway_url=gateway_url)
+    return access_hub, gateway_url
 
 
 def bundled_config():
@@ -98,21 +92,18 @@ def bundled_config():
     return data if isinstance(data, dict) else {}
 
 
-# -- auth commands ---------------------------------------------------------
-
-
 def cmd_auth_status(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
-    return {"data": cua_auth.auth_status(state, access_hub, mcp_url, online=not args.offline)}
+    access_hub, gateway_url = resolve_urls(args, state)
+    return {"data": cua_auth.auth_status(state, access_hub, gateway_url, online=not args.offline)}
 
 
 def cmd_auth_login(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state, persist=True)
+    access_hub, gateway_url = resolve_urls(args, state, persist=True)
     return {
         "data": cua_auth.login(
             state,
             access_hub,
-            mcp_url,
+            gateway_url,
             open_browser=not args.no_browser,
             bearer_key_stdin=args.bearer_key_stdin,
             no_validate=args.no_validate,
@@ -124,93 +115,124 @@ def cmd_auth_logout(args, state, session):
     return {"data": cua_auth.logout(state)}
 
 
-# -- CUA commands ----------------------------------------------------------
-
-
 def cmd_ping(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
-    data = cua_auth.authorized_tool_call(
-        state, access_hub, mcp_url, "cua_ping", {}, timeout=30, retries=IDEMPOTENT_RETRIES
-    )
-    return {"data": data}
-
-
-def cmd_delegate(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
-    wait_ms = _wait_ms(args.wait_ms)
-    envelope = cua_auth.authorized_tool_call(
+    access_hub, gateway_url = resolve_urls(args, state)
+    manifest = gateway_manifest(gateway_url, timeout=30)
+    access = cua_auth.authorized_tool_call(
         state,
         access_hub,
-        mcp_url,
-        "cua_delegate",
-        {"objective": args.objective, "wait_ms": wait_ms},
-        timeout=_tool_timeout(wait_ms),
-    )
-    return _envelope_result(envelope, session)
-
-
-def cmd_watch(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
-    invocation_id = _resolve_invocation_id(args, session)
-    wait_ms = _wait_ms(args.wait_ms)
-    envelope = cua_auth.authorized_tool_call(
-        state,
-        access_hub,
-        mcp_url,
-        "cua_watch",
-        {"invocation_id": invocation_id, "wait_ms": wait_ms},
-        timeout=_tool_timeout(wait_ms),
-        retries=IDEMPOTENT_RETRIES,
-    )
-    return _envelope_result(envelope, session)
-
-
-def cmd_answer(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
-    invocation_id = _resolve_invocation_id(args, session)
-    wait_ms = _wait_ms(args.wait_ms)
-    envelope = cua_auth.authorized_tool_call(
-        state,
-        access_hub,
-        mcp_url,
-        "cua_answer",
-        {"invocation_id": invocation_id, "answer": args.answer, "wait_ms": wait_ms},
-        timeout=_tool_timeout(wait_ms),
-    )
-    return _envelope_result(envelope, session)
-
-
-def cmd_cancel(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
-    invocation_id = _resolve_invocation_id(args, session)
-    data = cua_auth.authorized_tool_call(
-        state,
-        access_hub,
-        mcp_url,
-        "cua_cancel",
-        {"invocation_id": invocation_id},
+        gateway_url,
+        "cua_get_desktop_access",
+        {"ttl_seconds": 300},
         timeout=30,
         retries=IDEMPOTENT_RETRIES,
     )
-    return {"data": data}
+    return {
+        "data": {
+            "ok": True,
+            "server": {"name": manifest.get("name"), "version": manifest.get("version")},
+            "tool_count": len(manifest.get("tools") or []),
+            "desktop": access.get("desktop"),
+            "has_desktop_access_url": bool((access.get("access") or {}).get("desktop_login_url")),
+            "agent_hint": "Gateway auth is valid and the caller has a desktop binding.",
+        }
+    }
+
+
+def cmd_delegate(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    wait_ms = _wait_ms(args.wait_ms)
+    payload = cua_auth.authorized_tool_call(
+        state,
+        access_hub,
+        gateway_url,
+        "cua_run_task",
+        {"input": args.objective},
+        timeout=_tool_timeout(wait_ms),
+    )
+    if wait_ms and wait_ms > 0:
+        payload = cua_auth.authorized_tool_call(
+            state,
+            access_hub,
+            gateway_url,
+            "cua_wait_task",
+            {"task_id": payload.get("task_id"), "timeout_seconds": _wait_seconds(wait_ms)},
+            timeout=_tool_timeout(wait_ms),
+        )
+    return _envelope_result(_task_envelope(payload), session)
+
+
+def cmd_watch(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    invocation_id = _resolve_invocation_id(args, session)
+    wait_ms = _wait_ms(args.wait_ms)
+    request = {"task_id": invocation_id}
+    if wait_ms is not None:
+        request["timeout_seconds"] = _wait_seconds(wait_ms)
+    payload = cua_auth.authorized_tool_call(
+        state,
+        access_hub,
+        gateway_url,
+        "cua_wait_task",
+        request,
+        timeout=_tool_timeout(wait_ms),
+        retries=IDEMPOTENT_RETRIES,
+    )
+    return _envelope_result(_task_envelope(payload), session)
+
+
+def cmd_answer(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    invocation_id = _resolve_invocation_id(args, session)
+    wait_ms = _wait_ms(args.wait_ms)
+    payload = cua_auth.authorized_tool_call(
+        state,
+        access_hub,
+        gateway_url,
+        "cua_resume_task",
+        {"task_id": invocation_id, "input": args.answer},
+        timeout=_tool_timeout(wait_ms),
+    )
+    if wait_ms and wait_ms > 0:
+        payload = cua_auth.authorized_tool_call(
+            state,
+            access_hub,
+            gateway_url,
+            "cua_wait_task",
+            {"task_id": invocation_id, "timeout_seconds": _wait_seconds(wait_ms)},
+            timeout=_tool_timeout(wait_ms),
+        )
+    return _envelope_result(_task_envelope(payload), session)
+
+
+def cmd_cancel(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    invocation_id = _resolve_invocation_id(args, session)
+    payload = cua_auth.authorized_tool_call(
+        state,
+        access_hub,
+        gateway_url,
+        "cua_cancel_task",
+        {"task_id": invocation_id},
+        timeout=30,
+        retries=IDEMPOTENT_RETRIES,
+    )
+    return {"data": _task_envelope(payload)}
 
 
 def cmd_observe(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
-    invocation_id = args.invocation_id or (session.last_invocation_id if args.last else None)
+    access_hub, gateway_url = resolve_urls(args, state)
     token = cua_auth.ensure_bearer_key(state, access_hub)
-    result = mcp_tool_call_raw(
-        mcp_url,
-        token,
-        "cua_observe",
-        {"invocation_id": invocation_id, "include_screenshot": bool(args.include_screenshot)},
-        timeout=60,
-    )
-    data = extract_tool_payload(result)
+    data = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=60)
     if args.include_screenshot:
-        screenshot_file = _save_first_image_content(result.get("content") or [])
+        shot = gateway_tool_call(gateway_url, token, "cua_take_screenshot", {}, timeout=60)
+        screenshot_file = _save_screenshot_payload(shot.get("screenshot") or {})
         if screenshot_file:
             data["screenshot_file"] = screenshot_file
+            data["screenshot"] = {k: v for k, v in (shot.get("screenshot") or {}).items() if k != "base64"}
+    access = data.get("access") or {}
+    if access.get("desktop_login_url") and "access_url" not in data:
+        data["access_url"] = access.get("desktop_login_url")
     return {
         "data": data,
         "next": {
@@ -221,7 +243,7 @@ def cmd_observe(args, state, session):
 
 
 def cmd_self_test(args, state, session):
-    access_hub, mcp_url = resolve_urls(args, state)
+    access_hub, gateway_url = resolve_urls(args, state)
     skill_dir = Path(__file__).resolve().parent.parent
     required = [
         skill_dir / "SKILL.md",
@@ -236,18 +258,12 @@ def cmd_self_test(args, state, session):
         raise SkillError("INTERNAL", "Skill install is incomplete.", missing=missing)
     data = {
         "skill_dir": str(skill_dir),
-        "config": {
-            "access_hub_url": access_hub,
-            "mcp_url": mcp_url,
-        },
-        "auth": cua_auth.auth_status(state, access_hub, mcp_url, online=False),
+        "config": {"access_hub_url": access_hub, "gateway_url": gateway_url},
+        "auth": cua_auth.auth_status(state, access_hub, gateway_url, online=False),
     }
     if args.online:
-        data["online"] = cua_auth.online_self_test(state, access_hub, mcp_url)
+        data["online"] = cua_auth.online_self_test(state, access_hub, gateway_url)
     return {"data": data}
-
-
-# -- helpers ---------------------------------------------------------------
 
 
 def _envelope_result(envelope, session):
@@ -259,6 +275,103 @@ def _envelope_result(envelope, session):
     if next_hint:
         payload["next"] = next_hint
     return payload
+
+
+def _task_envelope(payload):
+    payload = payload if isinstance(payload, dict) else {}
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    upstream = payload.get("upstream") if isinstance(payload.get("upstream"), dict) else {}
+    run = upstream.get("run") if isinstance(upstream.get("run"), dict) else {}
+    task_id = payload.get("task_id") or task.get("task_id")
+    status = payload.get("status") or task.get("status") or run.get("status") or upstream.get("status") or "running"
+    outcome = _outcome_from_status(status)
+    run_id = payload.get("mycua_run_id") or task.get("mycua_run_id") or run.get("id")
+    return {
+        "invocation_id": task_id,
+        "outcome": outcome,
+        "result": {
+            "text": _result_text(upstream) if outcome == "completed" else None,
+            "artifacts": _artifacts(upstream),
+        },
+        "input_request": _input_request(upstream) if outcome == "needs_input" else None,
+        "progress": {
+            "summary": _progress_summary(status, upstream),
+            "step_count": 0,
+            "updated_at": _updated_at(upstream),
+        },
+        "next_action": _next_action(outcome),
+        "diagnostics": {"trace_id": run_id, "mycua_run_id": run_id, "raw_status": status},
+    }
+
+
+def _outcome_from_status(status):
+    normalized = str(status or "").strip().lower()
+    if normalized in ("succeeded", "completed", "success"):
+        return "completed"
+    if normalized in ("failed", "error"):
+        return "failed"
+    if normalized in ("cancelled", "canceled"):
+        return "cancelled"
+    if normalized in ("interrupted", "blocked", "waiting_input", "requires_input", "needs_input"):
+        return "needs_input"
+    return "in_progress"
+
+
+def _result_text(upstream):
+    if not isinstance(upstream, dict):
+        return None
+    candidates = [upstream.get("text")]
+    for key in ("result", "output"):
+        value = upstream.get(key)
+        if isinstance(value, dict):
+            candidates.append(value.get("text"))
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate
+    return None
+
+
+def _input_request(upstream):
+    if not isinstance(upstream, dict):
+        return None
+    for key in ("input_request", "ask_user", "question"):
+        value = upstream.get(key)
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            return {"question": value, "choices": []}
+    run = upstream.get("run") if isinstance(upstream.get("run"), dict) else {}
+    value = run.get("input_request")
+    return value if isinstance(value, dict) else {"question": "CUA needs user input.", "choices": []}
+
+
+def _artifacts(upstream):
+    artifacts = upstream.get("artifacts") if isinstance(upstream, dict) else None
+    return artifacts if isinstance(artifacts, list) else []
+
+
+def _progress_summary(status, upstream):
+    progress = upstream.get("progress") if isinstance(upstream, dict) else None
+    if isinstance(progress, dict) and isinstance(progress.get("summary"), str):
+        return progress.get("summary")
+    return f"CUA task status: {status}"
+
+
+def _updated_at(upstream):
+    if isinstance(upstream, dict):
+        for key in ("updated_at", "completed_at", "created_at"):
+            value = upstream.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def _next_action(outcome):
+    if outcome == "in_progress":
+        return {"type": "watch", "agent_hint": "CUA is still working. Run watch again; do not answer from progress text."}
+    if outcome == "needs_input":
+        return {"type": "answer", "agent_hint": "Relay input_request.question to the user, then submit the user's answer."}
+    return {"type": "done", "agent_hint": "This invocation reached a terminal outcome."}
 
 
 def _next_for_envelope(envelope):
@@ -281,19 +394,14 @@ def _next_for_envelope(envelope):
             "agent_hint": hint or "Relay input_request.question to the user, then submit the user's answer.",
         }
     if outcome in TERMINAL_OUTCOMES:
-        return {
-            "agent_hint": "This invocation reached a terminal outcome. If completed, use result.text as authoritative.",
-        }
+        return {"agent_hint": "This invocation reached a terminal outcome. If completed, use result.text as authoritative."}
     return None
 
 
 def _resolve_invocation_id(args, session):
     invocation_id = getattr(args, "invocation_id", None) or session.last_invocation_id
     if not invocation_id:
-        raise SkillError(
-            "VALIDATION_ERROR",
-            "No invocation id. Pass --invocation-id or run delegate first.",
-        )
+        raise SkillError("VALIDATION_ERROR", "No invocation id. Pass --invocation-id or run delegate first.")
     return invocation_id
 
 
@@ -311,29 +419,30 @@ def _tool_timeout(wait_ms):
     return max(30, min(720, int(wait_ms / 1000) + 30))
 
 
-def _save_first_image_content(content):
-    for item in content:
-        if not isinstance(item, dict) or item.get("type") != "image":
-            continue
-        b64 = item.get("data")
-        if not isinstance(b64, str) or not b64:
-            continue
-        mime_type = item.get("mimeType") or item.get("mime_type")
-        raw = base64.b64decode(b64)
-        fd, path = tempfile.mkstemp(prefix="cua-screenshot-", suffix=ext_for_mime(mime_type))
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(raw)
-        return path
-    return None
+def _wait_seconds(wait_ms):
+    if wait_ms is None:
+        return None
+    return max(1, min(60, int(math.ceil(wait_ms / 1000))))
 
 
-# -- parser ----------------------------------------------------------------
+def _save_screenshot_payload(screenshot):
+    if not isinstance(screenshot, dict):
+        return None
+    b64 = screenshot.get("base64")
+    if not isinstance(b64, str) or not b64:
+        return None
+    raw = base64.b64decode(b64)
+    fd, path = tempfile.mkstemp(prefix="cua-screenshot-", suffix=ext_for_mime(screenshot.get("mime_type")))
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(raw)
+    return path
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Use CUA through ByteSSO Access Hub and Skill MCP.")
+    parser = argparse.ArgumentParser(description="Use CUA through ByteSSO Access Hub and Skill Gateway.")
     parser.add_argument("--access-hub-base-url", help="Override Access Hub base URL.")
-    parser.add_argument("--mcp-url", help="Override CUA Skill MCP endpoint URL.")
+    parser.add_argument("--gateway-url", help="Override CUA Skill Gateway base URL.")
+    parser.add_argument("--mcp-url", dest="gateway_url", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command")
 
     auth = sub.add_parser("auth", help="Manage ByteSSO/Access Hub login.")
@@ -346,7 +455,7 @@ def build_parser():
     p = auth_sub.add_parser("login", help="Open Access Hub and store the generated Bearer Key.")
     p.add_argument("--no-browser", action="store_true", help="Print/use the setup URL without opening a browser.")
     p.add_argument("--bearer-key-stdin", action="store_true", help="Read the Bearer Key from stdin.")
-    p.add_argument("--no-validate", action="store_true", help="Store the key without calling cua_ping.")
+    p.add_argument("--no-validate", action="store_true", help="Store the key without calling the gateway.")
     p.set_defaults(action="auth.login", handler=cmd_auth_login)
 
     p = auth_sub.add_parser("logout", help="Remove the local Bearer Key cache.")
@@ -379,13 +488,13 @@ def build_parser():
     p.set_defaults(action="cancel", handler=cmd_cancel)
 
     p = sub.add_parser("observe", help="Read-only desktop state and temporary access URL.")
-    p.add_argument("--invocation-id", help="Optional invocation id to observe.")
-    p.add_argument("--last", action="store_true", help="Observe the latest invocation's environment.")
+    p.add_argument("--invocation-id", help="Accepted for compatibility; desktop access is caller-scoped.")
+    p.add_argument("--last", action="store_true", help="Accepted for compatibility; desktop access is caller-scoped.")
     p.add_argument("--include-screenshot", action="store_true", help="Save an optional screenshot to a temp file.")
     p.set_defaults(action="observe", handler=cmd_observe)
 
-    p = sub.add_parser("self-test", help="Validate local install; --online also checks MCP auth.")
-    p.add_argument("--online", action="store_true", help="Run online MCP initialize/tools/list/ping.")
+    p = sub.add_parser("self-test", help="Validate local install; --online also checks gateway auth.")
+    p.add_argument("--online", action="store_true", help="Run online manifest and desktop-access checks.")
     p.set_defaults(action="self-test", handler=cmd_self_test)
 
     return parser

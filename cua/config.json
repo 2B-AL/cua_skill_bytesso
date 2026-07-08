@@ -1,6 +1,5 @@
 {
   "access_hub_base_url": "http://10.37.98.200/cua-access",
-  "skill_mcp_url": "http://10.37.98.200/skill/mcp",
-  "mcp_server_name": "cua_skill_v2",
-  "mcp_transport": "MCP Streamable HTTP"
+  "skill_gateway_url": "http://10.37.98.200",
+  "tool_endpoint": "/skill/tools/{tool}"
 }

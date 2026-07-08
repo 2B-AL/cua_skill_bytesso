@@ -19,7 +19,7 @@ Branch on `error.code`.
 | `GATEWAY_TIMEOUT` | gateway wait timed out | run `watch --last`; the task may still be running |
 | `RATE_LIMITED` | too many requests | wait, then retry |
 | `VALIDATION_ERROR` | bad local argument or wrong key format | fix the argument or login input |
-| `NETWORK` | cannot reach Access Hub or `/skill/mcp` | check VPN/network and endpoint overrides |
+| `NETWORK` | cannot reach Access Hub or `/skill/manifest` / `/skill/tools/{tool}` | check VPN/network and endpoint overrides |
 | `INTERNAL` | unexpected protocol or server response | retry once; if it persists, collect logs |
 
 ## Common Situations
@@ -32,4 +32,4 @@ Branch on `error.code`.
 - **Key worked yesterday but fails now**: It may have been revoked or the Access
   Hub HMAC secret may have rotated. Generate a new key.
 - **`self-test` passes but `self-test --online` fails**: Local install is fine;
-  investigate network, `/skill/mcp`, Access Hub key, or desktop allocation.
+  investigate network, Skill Gateway, Access Hub key, or desktop allocation.

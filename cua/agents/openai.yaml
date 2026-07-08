@@ -1,5 +1,5 @@
 display_name: CUA ByteSSO
-short_description: Delegate computer-use tasks to CUA through ByteSSO Access Hub and the CUA Skill MCP endpoint.
+short_description: Delegate computer-use tasks to CUA through ByteSSO Access Hub and the CUA Skill Gateway.
 default_prompt: >-
   Use the CUA ByteSSO skill to run the user's computer-use task on an
   authenticated CUA cloud desktop. Drive everything through scripts/cua.py:

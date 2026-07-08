@@ -12,7 +12,7 @@ python3 <skill_dir>/scripts/cua.py auth login --bearer-key-stdin
 python3 <skill_dir>/scripts/cua.py auth logout
 ```
 
-`auth status` validates the cached Bearer Key online with `cua_ping` unless
+`auth status` validates the cached Bearer Key online with `cua_get_desktop_access` unless
 `--offline` is set.
 
 ## Connectivity
@@ -21,7 +21,7 @@ python3 <skill_dir>/scripts/cua.py auth logout
 python3 <skill_dir>/scripts/cua.py ping
 ```
 
-`ping` is read-only. It validates MCP connectivity, auth, and desktop binding.
+`ping` is read-only. It validates gateway connectivity, auth, and desktop binding.
 
 ## Delegate
 
@@ -84,6 +84,6 @@ python3 <skill_dir>/scripts/cua.py self-test
 python3 <skill_dir>/scripts/cua.py self-test --online
 ```
 
-Plain `self-test` checks local files and config only. `--online` performs MCP
-initialize, tools/list, and `cua_ping`; it requires login and creates no CUA
-task.
+Plain `self-test` checks local files and config only. `--online` checks
+`/skill/manifest` and `cua_get_desktop_access`; it requires login and creates no
+CUA task.

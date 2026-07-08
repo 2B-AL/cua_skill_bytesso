@@ -1,9 +1,4 @@
-"""Local caches for the ByteSSO CUA Skill CLI.
-
-`AuthState` stores endpoint choices and the Access Hub Bearer Key in a 0600 file
-at ~/.openclaw/cua-skill-bytesso/auth.json. `SessionState` remembers the latest
-invocation id for `watch --last` style commands.
-"""
+"""Local caches for the ByteSSO CUA Skill CLI."""
 
 import json
 import os
@@ -15,7 +10,6 @@ from cua_util import SkillError
 
 DEFAULT_DIR = Path.home() / ".openclaw" / "cua-skill-bytesso"
 DEFAULT_AUTH_FILE = DEFAULT_DIR / "auth.json"
-DEFAULT_SESSION_FILE = DEFAULT_DIR / "session.json"
 
 
 def auth_file_path():
@@ -76,6 +70,10 @@ class AuthState(_JsonFile):
         return self.data.get("access_hub_base_url")
 
     @property
+    def gateway_url(self):
+        return self.data.get("gateway_url") or self.data.get("mcp_url")
+
+    @property
     def mcp_url(self):
         return self.data.get("mcp_url")
 
@@ -87,21 +85,21 @@ class AuthState(_JsonFile):
     def user(self):
         return self.data.get("user") or {}
 
-    def set_endpoints(self, *, access_hub_base_url, mcp_url):
+    def set_endpoints(self, *, access_hub_base_url, gateway_url):
         changed = False
         if access_hub_base_url and self.data.get("access_hub_base_url") != access_hub_base_url:
             self.data["access_hub_base_url"] = access_hub_base_url
             changed = True
-        if mcp_url and self.data.get("mcp_url") != mcp_url:
-            self.data["mcp_url"] = mcp_url
+        if gateway_url and self.data.get("gateway_url") != gateway_url:
+            self.data["gateway_url"] = gateway_url
             changed = True
         if changed:
             self.save()
 
-    def set_bearer_key(self, *, access_hub_base_url, mcp_url, bearer_key, user=None):
+    def set_bearer_key(self, *, access_hub_base_url, gateway_url, bearer_key, user=None):
         self.data.update({
             "access_hub_base_url": access_hub_base_url,
-            "mcp_url": mcp_url,
+            "gateway_url": gateway_url,
             "bearer_key": bearer_key,
             "user": user or {},
         })

@@ -1,8 +1,11 @@
-"""MCP Streamable HTTP client for the CUA Skill.
+"""AP-style HTTP client for the CUA Skill Gateway.
 
-Stdlib only. The client posts JSON-RPC requests to the remote `/skill/mcp`
-endpoint, accepts JSON or SSE responses, and converts protocol/tool errors into
-stable SkillError codes.
+Stdlib only. The client talks to:
+
+- GET  /skill/manifest
+- POST /skill/tools/{tool}
+
+Tool errors are converted into stable SkillError codes used by the CLI.
 """
 
 import json
@@ -12,151 +15,61 @@ from urllib.request import Request, urlopen
 from cua_util import SkillError, login_retry_command
 
 DEFAULT_TIMEOUT_SEC = 120
-MCP_PROTOCOL_VERSION = "2025-06-18"
-CLIENT_INFO = {"name": "cua-skill-bytesso", "version": "0.1.0"}
 
 
-def mcp_initialize(mcp_url, bearer_key, timeout=30):
-    payload = _jsonrpc(
-        "initialize",
-        {
-            "protocolVersion": MCP_PROTOCOL_VERSION,
-            "capabilities": {},
-            "clientInfo": CLIENT_INFO,
-        },
-        rpc_id="init",
+def gateway_manifest(gateway_url, timeout=30):
+    req = Request(
+        _join(gateway_url, "/skill/manifest"),
+        headers={"Accept": "application/json"},
+        method="GET",
     )
-    return _post_jsonrpc(mcp_url, bearer_key, payload, timeout=timeout).get("result", {})
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            return _decode_json(resp.read())
+    except HTTPError as exc:
+        body = exc.read()
+        _raise_http_error(exc.code, body)
+    except URLError as exc:
+        raise SkillError("NETWORK", f"Cannot reach CUA Skill Gateway at {gateway_url}: {exc.reason}")
+    except TimeoutError:
+        raise SkillError("NETWORK", f"Request to CUA Skill Gateway timed out: {gateway_url}")
 
 
-def mcp_tools_list(mcp_url, bearer_key, timeout=30):
-    payload = _jsonrpc("tools/list", {}, rpc_id="tools")
-    return _post_jsonrpc(mcp_url, bearer_key, payload, timeout=timeout).get("result", {})
-
-
-def mcp_tool_call(mcp_url, bearer_key, tool_name, arguments=None, timeout=DEFAULT_TIMEOUT_SEC):
-    """Call a CUA MCP tool and return its structuredContent payload."""
-    result = mcp_tool_call_raw(mcp_url, bearer_key, tool_name, arguments, timeout=timeout)
-    return extract_tool_payload(result)
-
-
-def mcp_tool_call_raw(mcp_url, bearer_key, tool_name, arguments=None, timeout=DEFAULT_TIMEOUT_SEC):
-    payload = _jsonrpc(
-        "tools/call",
-        {"name": tool_name, "arguments": arguments or {}},
-        rpc_id=tool_name,
-    )
-    response = _post_jsonrpc(mcp_url, bearer_key, payload, timeout=timeout)
-    if "error" in response:
-        _raise_jsonrpc_error(response["error"])
-    result = response.get("result")
-    if not isinstance(result, dict):
-        raise SkillError("INTERNAL", "MCP tools/call returned an invalid result.")
-    return result
-
-
-def extract_tool_payload(result):
-    if result.get("isError"):
-        _raise_tool_error(result)
-    structured = result.get("structuredContent")
-    if isinstance(structured, dict):
-        return structured
-    text_payload = _first_json_text(result)
-    if isinstance(text_payload, dict):
-        return text_payload
-    raise SkillError("INTERNAL", "MCP tool result did not contain structured JSON.")
-
-
-def _post_jsonrpc(mcp_url, bearer_key, payload, timeout):
+def gateway_tool_call(gateway_url, bearer_key, tool_name, arguments=None, timeout=DEFAULT_TIMEOUT_SEC):
+    payload = arguments or {}
     headers = {
-        "Accept": "application/json, text/event-stream",
+        "Accept": "application/json",
         "Content-Type": "application/json",
     }
     if bearer_key:
         headers["Authorization"] = "Bearer " + bearer_key
     req = Request(
-        mcp_url,
+        _join(gateway_url, f"/skill/tools/{tool_name}"),
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",
     )
     try:
         with urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            return _decode_jsonrpc_response(_headers_dict(resp), raw)
+            envelope = _decode_json(resp.read())
+            return _tool_result(envelope)
     except HTTPError as exc:
         body = exc.read()
         _raise_http_error(exc.code, body)
     except URLError as exc:
-        raise SkillError("NETWORK", f"Cannot reach CUA Skill MCP at {mcp_url}: {exc.reason}")
+        raise SkillError("NETWORK", f"Cannot reach CUA Skill Gateway at {gateway_url}: {exc.reason}")
     except TimeoutError:
-        raise SkillError("NETWORK", f"Request to CUA Skill MCP timed out: {mcp_url}")
+        raise SkillError("GATEWAY_TIMEOUT", f"Request to CUA Skill Gateway timed out: {gateway_url}")
 
 
-def _jsonrpc(method, params, rpc_id):
-    return {"jsonrpc": "2.0", "id": rpc_id, "method": method, "params": params}
-
-
-def _decode_jsonrpc_response(headers, raw):
-    text = raw.decode("utf-8", errors="replace")
-    content_type = headers.get("content-type", "")
-    if "text/event-stream" in content_type or text.lstrip().startswith(("event:", "data:")):
-        return _decode_sse(text)
-    try:
-        payload = json.loads(text) if text.strip() else {}
-    except json.JSONDecodeError as exc:
-        raise SkillError("INTERNAL", f"MCP returned non-JSON response: {text[:200]}") from exc
-    if not isinstance(payload, dict):
-        raise SkillError("INTERNAL", "MCP JSON-RPC response was not an object.")
-    return payload
-
-
-def _decode_sse(text):
-    events = []
-    data_lines = []
-    for line in text.splitlines():
-        if not line.strip():
-            if data_lines:
-                events.append("\n".join(data_lines))
-                data_lines = []
-            continue
-        if line.startswith("data:"):
-            data_lines.append(line[5:].strip())
-    if data_lines:
-        events.append("\n".join(data_lines))
-
-    candidate = None
-    for data in events:
-        if not data or data == "[DONE]":
-            continue
-        try:
-            payload = json.loads(data)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict) and ("result" in payload or "error" in payload):
-            candidate = payload
-    if candidate is None:
-        raise SkillError("INTERNAL", "MCP SSE response did not contain a JSON-RPC payload.")
-    return candidate
-
-
-def _raise_tool_error(result):
-    payload = _first_json_text(result)
-    message = "CUA MCP tool returned an error."
-    status = None
-    code = None
-    if isinstance(payload, dict):
-        message = payload.get("message") or payload.get("error") or message
-        status = payload.get("status")
-        code = payload.get("code")
-    _raise_mapped_error(code, status, message)
-
-
-def _raise_jsonrpc_error(error):
-    if not isinstance(error, dict):
-        raise SkillError("INTERNAL", "MCP JSON-RPC error.")
-    data = error.get("data") if isinstance(error.get("data"), dict) else {}
-    _raise_mapped_error(data.get("code"), data.get("status"), error.get("message") or "MCP call failed.")
+def _tool_result(envelope):
+    if not isinstance(envelope, dict):
+        raise SkillError("INTERNAL", "CUA Skill Gateway returned a non-object response.")
+    if envelope.get("ok") is True:
+        result = envelope.get("result")
+        return result if isinstance(result, dict) else {}
+    error = envelope.get("error") if isinstance(envelope.get("error"), dict) else {}
+    _raise_mapped_error(error.get("code"), error.get("upstream_status"), error.get("message"))
 
 
 def _raise_http_error(status, body):
@@ -170,50 +83,54 @@ def _raise_http_error(status, body):
         error = payload.get("error")
         if isinstance(error, dict):
             message = error.get("message") or message
-            code = error.get("code")
-            _raise_mapped_error(code, status, message)
+            _raise_mapped_error(error.get("code"), status, message)
+        _raise_mapped_error(payload.get("code") or payload.get("error"), status, payload.get("message") or message)
     _raise_mapped_error(None, status, message)
 
 
 def _raise_mapped_error(code, status, message):
-    if code:
-        stable = str(code)
-        extra = {}
-        if stable in ("AUTH_REQUIRED", "TOKEN_EXPIRED", "REFRESH_FAILED"):
-            extra["retry_command"] = login_retry_command()
-        raise SkillError(stable, message, **extra)
+    stable = str(code or "").strip()
+    msg = message or "CUA Skill Gateway request failed."
+    if stable in ("Unauthorized", "AUTH_REQUIRED", "TOKEN_EXPIRED", "REFRESH_FAILED"):
+        raise SkillError("AUTH_REQUIRED", msg, retry_command=login_retry_command())
+    if stable in ("TaskNotOwned", "TaskNotStarted"):
+        raise SkillError("INVOCATION_NOT_FOUND", msg)
+    if stable in ("DesktopNotOwned",):
+        raise SkillError("FORBIDDEN", msg)
+    if stable in ("DesktopNotReady", "no_active_cua_allocation"):
+        raise SkillError("DESKTOP_NOT_BOUND", msg)
+    if stable in ("AccessHubUnavailable", "MyCUAUnavailable"):
+        raise SkillError("CUA_BACKEND_UNAVAILABLE", msg)
+    if stable:
+        raise SkillError(stable, msg)
 
     if status in (401, "401"):
-        raise SkillError("AUTH_REQUIRED", message or "Login required for CUA Skill.", retry_command=login_retry_command())
+        raise SkillError("AUTH_REQUIRED", msg or "Login required for CUA Skill.", retry_command=login_retry_command())
     if status in (403, "403"):
-        raise SkillError("FORBIDDEN", message or "CUA Skill credential is forbidden.")
-    if status in (409, "409") and "desktop" in (message or "").lower():
-        raise SkillError("DESKTOP_NOT_BOUND", message)
+        raise SkillError("FORBIDDEN", msg or "CUA Skill credential is forbidden.")
+    if status in (404, "404"):
+        raise SkillError("INVOCATION_NOT_FOUND", msg or "CUA invocation was not found.")
+    if status in (409, "409"):
+        raise SkillError("DESKTOP_NOT_BOUND", msg)
     if status in (429, "429"):
-        raise SkillError("RATE_LIMITED", message or "CUA Skill MCP rate limited the request.")
+        raise SkillError("RATE_LIMITED", msg or "CUA Skill Gateway rate limited the request.")
     if status in (502, 503, "502", "503"):
-        raise SkillError("CUA_BACKEND_UNAVAILABLE", message or "CUA backend is unavailable.")
+        raise SkillError("CUA_BACKEND_UNAVAILABLE", msg or "CUA backend is unavailable.")
     if status in (504, "504"):
-        raise SkillError("GATEWAY_TIMEOUT", message or "CUA Skill MCP timed out; the task may still be running.")
-    raise SkillError("INTERNAL", message or "CUA Skill MCP returned an unexpected error.")
+        raise SkillError("GATEWAY_TIMEOUT", msg or "CUA Skill Gateway timed out; the task may still be running.")
+    raise SkillError("INTERNAL", msg or "CUA Skill Gateway returned an unexpected error.")
 
 
-def _first_json_text(result):
-    content = result.get("content") if isinstance(result, dict) else None
-    if not isinstance(content, list):
-        return None
-    for item in content:
-        if not isinstance(item, dict) or item.get("type") != "text":
-            continue
-        text = item.get("text")
-        if not isinstance(text, str):
-            continue
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {"message": text}
-    return None
+def _decode_json(raw):
+    text = raw.decode("utf-8", errors="replace")
+    try:
+        payload = json.loads(text) if text.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise SkillError("INTERNAL", f"CUA Skill Gateway returned non-JSON response: {text[:200]}") from exc
+    if not isinstance(payload, dict):
+        raise SkillError("INTERNAL", "CUA Skill Gateway JSON response was not an object.")
+    return payload
 
 
-def _headers_dict(response):
-    return {k.lower(): v for k, v in response.headers.items()}
+def _join(base, path):
+    return base.rstrip("/") + "/" + path.lstrip("/")
