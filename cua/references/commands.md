@@ -12,10 +12,11 @@ python3 <skill_dir>/scripts/cua.py auth login --bearer-key-stdin
 python3 <skill_dir>/scripts/cua.py auth logout
 ```
 
-`auth login` prints and opens an Access Hub ByteSSO login URL, waits for the
-browser callback, and stores the returned local CUA credential. `auth status`
-validates the cached credential online with `cua_get_desktop_access` unless
-`--offline` is set.
+`auth login` prints and opens one Access Hub ByteSSO browser login URL, waits
+for the browser callback, and stores the returned local CUA credential. Agents
+should run this command themselves when auth is required; users should only open
+the printed browser URL. `auth status` validates the cached credential online
+with `cua_get_desktop_access` unless `--offline` is set.
 
 ## Connectivity
 
@@ -77,7 +78,9 @@ python3 <skill_dir>/scripts/cua.py observe --include-screenshot
 desktop access URL. With `--include-screenshot`, the script saves the image to a
 temporary file and returns `screenshot_file`.
 
-Do not use `observe` to decide whether a task is done. Use `watch`.
+Do not ask the user to run `observe`. Run it after auth is ready when the user
+asks for the CUA/cloud desktop link. Do not use `observe` to decide whether a
+task is done. Use `watch`.
 
 ## Self-Test
 

@@ -30,8 +30,7 @@ def ensure_bearer_key(state, access_hub_base_url):
         return token
     raise SkillError(
         "AUTH_REQUIRED",
-        "Login required for CUA Skill.",
-        login_url=skill_auth_start_url(access_hub_base_url),
+        "Login required for CUA Skill. Run auth login; it will print the ByteSSO browser login URL.",
         retry_command=login_retry_command(),
     )
 
@@ -87,8 +86,8 @@ def auth_status(state, access_hub_base_url, gateway_url, online=True):
             "status": "logged_out",
             "access_hub_url": access_hub_base_url,
             "gateway_url": gateway_url,
-            "login_url": skill_auth_start_url(access_hub_base_url),
             "retry_command": login_retry_command(),
+            "agent_hint": "Run retry_command instead of opening Access Hub API endpoints directly. auth login will print exactly one browser login URL.",
         }
     if not online:
         return {

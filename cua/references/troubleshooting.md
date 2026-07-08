@@ -10,7 +10,7 @@ Branch on `error.code`.
 
 | code | cause | what to do |
 | --- | --- | --- |
-| `AUTH_REQUIRED` | no local CUA credential, revoked token, expired login flow, or missing auth header | run `error.retry_command`, open the login URL, finish ByteSSO, then retry |
+| `AUTH_REQUIRED` | no local CUA credential, revoked token, expired login flow, or missing auth header | run `error.retry_command`; it will print the one browser login URL to show the user |
 | `FORBIDDEN` | the key is valid but not allowed for this action | tell the user they lack permission |
 | `DESKTOP_NOT_BOUND` | Access Hub has not allocated a CUA desktop for the user | open Access Hub resources/setup page and allocate or contact an admin |
 | `INVOCATION_NOT_FOUND` | wrong invocation id | use the id from `delegate` or run with `--last` |
@@ -29,6 +29,9 @@ Branch on `error.code`.
 - **Login page opens but the command keeps waiting**: make sure the browser
   completes the Access Hub callback page. If the flow expires, rerun
   `auth login`.
+- **A URL ending in `/api/v1/skill-auth/start` was shown as the login link**:
+  that is a machine API, not a browser login URL. Run `auth login` and show only
+  the URL printed by that command.
 - **Token worked yesterday but fails now**: it may have been revoked or the
   Access Hub HMAC secret may have rotated. Rerun `auth login`.
 - **`self-test` passes but `self-test --online` fails**: Local install is fine;
