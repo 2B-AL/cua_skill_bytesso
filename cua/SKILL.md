@@ -50,7 +50,29 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    to set a local default desktop for later `observe` and `delegate` calls.
    Quota is enforced by the gateway.
 
-4. If the user only asks for their CUA/cloud desktop link, call `observe` after
+4. Decide whether the user's request can run on one CUA or several CUAs:
+
+   - Use one CUA when steps depend on each other, share browser/app state, need
+     one logged-in session, or require a single coherent desktop workflow.
+   - Use several CUAs when the request contains independent research, browsing,
+     data collection, QA, or verification subtasks whose results can be merged
+     later.
+   - Do not split just to be clever. Split only when parallel execution will
+     reduce latency or isolate independent work without changing the user's
+     intent.
+
+   For parallel work, use `desktops list` first. Assign each independent
+   subtask to an idle desktop with `delegate --desktop-id`, or use
+   `delegate --auto` when any idle/new desktop is acceptable. Keep each subtask
+   self-contained and faithful to the user's request, then combine the completed
+   `result.text` and artifacts into one final answer.
+
+   Example: for "查明天北京天气、热门景点、今年北京著名大学招生情况",
+   it is appropriate to run three CUA tasks in parallel: weather, attractions,
+   and university admissions. Report each CUA's result separately before the
+   combined summary.
+
+5. If the user only asks for their CUA/cloud desktop link, call `observe` after
    auth is ready. Pass `--desktop-id` if the user or prior `desktops list`
    selected a specific desktop:
 
@@ -62,7 +84,8 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    Return the temporary desktop access URL from the command output. Do not ask
    the user to run `observe`.
 
-5. For real work, call `delegate` with the user's original objective. If a
+6. For real work, call `delegate` with the user's original objective or one
+   independent subtask derived from it. If a
    specific desktop was selected, pass `--desktop-id`. By default this starts a
    CUA task and returns quickly; do not block the chat waiting for completion
    unless the user explicitly asks you to wait for the result:
@@ -78,7 +101,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    with a clear error when quota is full. Do not use `--auto` if the user
    explicitly named a desktop.
 
-6. Track running tasks with task commands when multiple CUA tasks may be active:
+7. Track running tasks with task commands when multiple CUA tasks may be active:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py tasks list
@@ -89,7 +112,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    refresh or wait on several task ids in one call. For a single task,
    `watch --last` remains a shortcut.
 
-7. Inspect `data.outcome` on single-task responses, or each item in
+8. Inspect `data.outcome` on single-task responses, or each item in
    `data.tasks` for `tasks watch`:
    - `completed`: use `data.result.text` as the authoritative final answer.
      If artifacts are present, mention useful `text`, `image`, or `file`
@@ -102,7 +125,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
      `answer`.
    - `failed` or `cancelled`: report the terminal state.
 
-8. Do not use local browser/search/tools to finish the delegated objective after
+9. Do not use local browser/search/tools to finish the delegated objective after
    sending it to CUA unless the user explicitly redirects you away from CUA.
 
 ## Commands
@@ -126,8 +149,10 @@ read [auth.md](references/auth.md). For output states, read
 
 ## Important Rules
 
-- Pass the user's original objective directly to `delegate`; do not decompose,
-  rewrite, or add hidden requirements.
+- Pass the user's original objective directly to `delegate` for single-task
+  work. For independent parallel work, split only along explicit user goals and
+  pass each CUA a self-contained subtask without changing requirements or adding
+  hidden work.
 - Treat progress summaries and screenshots as status signals only.
 - Use `watch` or `tasks watch` to decide task completion; do not use `observe`
   for completion.

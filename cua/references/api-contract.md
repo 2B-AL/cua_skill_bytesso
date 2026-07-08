@@ -65,10 +65,18 @@ result lookup; those commands do not need a desktop selector.
 
 For concurrent task execution, agents should:
 
-1. Start each task with `delegate` and keep the returned `invocation_id`.
-2. Use `tasks list` to discover active tasks if local context is lost.
-3. Use `tasks watch` with several task ids to collect status and terminal
+1. Decide whether the user request contains independent subtasks that can run
+   on separate desktops without shared state.
+2. Start each independent task with `delegate` and keep the returned
+   `invocation_id`.
+3. Use `tasks list` to discover active tasks if local context is lost.
+4. Use `tasks watch` with several task ids to collect status and terminal
    results without serially blocking on one task.
+
+One `cua_run_task` maps to one CUA desktop task. A parallel user request is
+represented as several `cua_run_task` calls plus one or more `cua_watch_tasks`
+calls. The gateway does not split the user's request; the agent owns that
+planning decision.
 
 `cua_list_desktops` may include scheduling hints on each desktop:
 
