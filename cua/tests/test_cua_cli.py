@@ -1,6 +1,8 @@
 import sys
 import unittest
+from argparse import Namespace
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
@@ -10,6 +12,51 @@ import cua  # noqa: E402
 
 
 class CuaCliTests(unittest.TestCase):
+    def test_desktops_allocate_calls_gateway_tool(self):
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.cua_auth, "ensure_bearer_key", return_value="token"),
+            mock.patch.object(cua, "gateway_tool_call", return_value={"desktop": {"desktop_id": "vm-2"}}) as call,
+        ):
+            result = cua.cmd_desktops_allocate(
+                Namespace(spec_code="s80", label="qa-run"),
+                state=object(),
+                session=object(),
+            )
+
+        self.assertEqual(result["data"]["desktop"]["desktop_id"], "vm-2")
+        call.assert_called_once_with(
+            "http://gateway",
+            "token",
+            "cua_allocate_desktop",
+            {"spec_code": "s80", "label": "qa-run"},
+            timeout=60,
+        )
+
+    def test_delegate_passes_desktop_id(self):
+        class Session:
+            def set_last_invocation_id(self, invocation_id):
+                self.last = invocation_id
+
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(
+                cua.cua_auth,
+                "authorized_tool_call",
+                return_value={"task_id": "task-1", "status": "running", "upstream": {}},
+            ) as call,
+        ):
+            result = cua.cmd_delegate(
+                Namespace(objective="do work", desktop_id="vm-2", wait_ms=None),
+                state=object(),
+                session=Session(),
+            )
+
+        self.assertEqual(result["data"]["invocation_id"], "task-1")
+        call.assert_called_once()
+        self.assertEqual(call.call_args.args[3], "cua_run_task")
+        self.assertEqual(call.call_args.args[4], {"input": "do work", "desktop_id": "vm-2"})
+
     def test_task_envelope_reads_mycua_final_text(self):
         payload = {
             "task_id": "cua_task_1",

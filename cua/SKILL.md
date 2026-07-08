@@ -36,23 +36,39 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    Access Hub API endpoints directly. Never place bearer tokens in chat,
    command-line arguments, repo files, or logs.
 
-3. If the user only asks for their CUA/cloud desktop link, call `observe` after
-   auth is ready:
+3. To inspect or allocate desktops, use the local CLI instead of guessing:
+
+   ```bash
+   python3 <skill_dir>/scripts/cua.py desktops list
+   python3 <skill_dir>/scripts/cua.py desktops allocate --label "<optional label>"
+   ```
+
+   Use `desktops list` before selecting a desktop for a QA task when multiple
+   desktops may exist. Use `desktops allocate` only when the user asks for a new
+   CUA instance or no suitable existing desktop is available. Quota is enforced
+   by the gateway.
+
+4. If the user only asks for their CUA/cloud desktop link, call `observe` after
+   auth is ready. Pass `--desktop-id` if the user or prior `desktops list`
+   selected a specific desktop:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py observe
+   python3 <skill_dir>/scripts/cua.py observe --desktop-id <desktop_id>
    ```
 
    Return the temporary desktop access URL from the command output. Do not ask
    the user to run `observe`.
 
-4. For real work, call `delegate` with the user's original objective:
+5. For real work, call `delegate` with the user's original objective. If a
+   specific desktop was selected, pass `--desktop-id`:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
+   python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --objective "<user objective>"
    ```
 
-5. Inspect `data.outcome`:
+6. Inspect `data.outcome`:
    - `completed`: use `data.result.text` as the authoritative final answer.
      If artifacts are present, mention useful `text`, `image`, or `file`
      artifact names, URLs, or paths. Treat `browser_snapshot` artifacts as
@@ -62,13 +78,14 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
      `answer`.
    - `failed` or `cancelled`: report the terminal state.
 
-6. Do not use local browser/search/tools to finish the delegated objective after
+7. Do not use local browser/search/tools to finish the delegated objective after
    sending it to CUA unless the user explicitly redirects you away from CUA.
 
 ## Commands
 
 - `auth status`, `auth login`, `auth logout`
 - `ping`
+- `desktops list`, `desktops allocate`
 - `delegate`
 - `watch`
 - `answer`

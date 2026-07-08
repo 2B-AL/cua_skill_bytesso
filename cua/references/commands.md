@@ -26,10 +26,24 @@ python3 <skill_dir>/scripts/cua.py ping
 
 `ping` is read-only. It validates gateway connectivity, auth, and desktop binding.
 
+## Desktops
+
+```bash
+python3 <skill_dir>/scripts/cua.py desktops list
+python3 <skill_dir>/scripts/cua.py desktops allocate
+python3 <skill_dir>/scripts/cua.py desktops allocate --label "qa-run"
+python3 <skill_dir>/scripts/cua.py desktops allocate --spec-code s80 --label "qa-run"
+```
+
+`desktops list` returns the caller's allocated desktops and quota. `desktops
+allocate` requests one additional CUA desktop and is rejected if the caller is
+over quota.
+
 ## Delegate
 
 ```bash
 python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
+python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --objective "<user objective>"
 python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>" --wait-ms 30000
 ```
 
@@ -69,6 +83,7 @@ Use only when the user explicitly asks to stop.
 
 ```bash
 python3 <skill_dir>/scripts/cua.py observe
+python3 <skill_dir>/scripts/cua.py observe --desktop-id <desktop_id>
 python3 <skill_dir>/scripts/cua.py observe --last
 python3 <skill_dir>/scripts/cua.py observe --invocation-id <id>
 python3 <skill_dir>/scripts/cua.py observe --include-screenshot

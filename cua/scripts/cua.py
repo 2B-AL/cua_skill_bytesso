@@ -139,15 +139,43 @@ def cmd_ping(args, state, session):
     }
 
 
+def cmd_desktops_list(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    data = gateway_tool_call(
+        gateway_url,
+        token,
+        "cua_list_desktops",
+        {},
+        timeout=30,
+    )
+    return {"data": data}
+
+
+def cmd_desktops_allocate(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    request = {}
+    if args.spec_code:
+        request["spec_code"] = args.spec_code
+    if args.label:
+        request["label"] = args.label
+    data = gateway_tool_call(gateway_url, token, "cua_allocate_desktop", request, timeout=60)
+    return {"data": data}
+
+
 def cmd_delegate(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     wait_ms = _wait_ms(args.wait_ms)
+    request = {"input": args.objective}
+    if args.desktop_id:
+        request["desktop_id"] = args.desktop_id
     payload = cua_auth.authorized_tool_call(
         state,
         access_hub,
         gateway_url,
         "cua_run_task",
-        {"input": args.objective},
+        request,
         timeout=_tool_timeout(wait_ms),
     )
     if wait_ms and wait_ms > 0:
@@ -223,9 +251,15 @@ def cmd_cancel(args, state, session):
 def cmd_observe(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     token = cua_auth.ensure_bearer_key(state, access_hub)
-    data = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=60)
+    request = {"ttl_seconds": 300}
+    if args.desktop_id:
+        request["desktop_id"] = args.desktop_id
+    data = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", request, timeout=60)
     if args.include_screenshot:
-        shot = gateway_tool_call(gateway_url, token, "cua_take_screenshot", {}, timeout=60)
+        shot_request = {}
+        if args.desktop_id:
+            shot_request["desktop_id"] = args.desktop_id
+        shot = gateway_tool_call(gateway_url, token, "cua_take_screenshot", shot_request, timeout=60)
         screenshot_file = _save_screenshot_payload(shot.get("screenshot") or {})
         if screenshot_file:
             data["screenshot_file"] = screenshot_file
@@ -602,8 +636,20 @@ def build_parser():
     p = sub.add_parser("ping", help="Read-only connectivity check.")
     p.set_defaults(action="ping", handler=cmd_ping)
 
+    desktops = sub.add_parser("desktops", help="List or allocate CUA desktops.")
+    desktops_sub = desktops.add_subparsers(dest="desktops_command")
+
+    p = desktops_sub.add_parser("list", help="List allocated CUA desktops and quota.")
+    p.set_defaults(action="desktops.list", handler=cmd_desktops_list)
+
+    p = desktops_sub.add_parser("allocate", help="Allocate an additional CUA desktop.")
+    p.add_argument("--spec-code", help="Optional CUA spec code.")
+    p.add_argument("--label", help="Optional human label for this desktop.")
+    p.set_defaults(action="desktops.allocate", handler=cmd_desktops_allocate)
+
     p = sub.add_parser("delegate", help="Delegate a user objective to CUA.")
     p.add_argument("--objective", required=True, help="The user's original objective.")
+    p.add_argument("--desktop-id", help="Optional desktop id/cua uid/instance name.")
     p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
     p.set_defaults(action="delegate", handler=cmd_delegate)
 
@@ -628,6 +674,7 @@ def build_parser():
     p = sub.add_parser("observe", help="Read-only desktop state and temporary access URL.")
     p.add_argument("--invocation-id", help="Accepted for compatibility; desktop access is caller-scoped.")
     p.add_argument("--last", action="store_true", help="Accepted for compatibility; desktop access is caller-scoped.")
+    p.add_argument("--desktop-id", help="Optional desktop id/cua uid/instance name.")
     p.add_argument("--include-screenshot", action="store_true", help="Save an optional screenshot to a temp file.")
     p.set_defaults(action="observe", handler=cmd_observe)
 

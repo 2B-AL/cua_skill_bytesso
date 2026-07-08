@@ -17,6 +17,8 @@ Legacy `cua_mcp_...` bearer keys are still accepted for compatibility.
 | CLI command | Gateway tool |
 | --- | --- |
 | `ping` | `cua_get_desktop_access` plus `GET /skill/manifest` |
+| `desktops list` | `cua_list_desktops` |
+| `desktops allocate` | `cua_allocate_desktop` |
 | `delegate` | `cua_run_task` |
 | `watch` | `cua_wait_task` |
 | `answer` | `cua_resume_task` |
@@ -53,3 +55,7 @@ Failure:
 
 The CLI maps gateway `task_id` to the existing `invocation_id` field so agents
 can keep using `watch --last` and `answer --last`.
+
+When multiple desktops exist, gateway tools accept `desktop_id` where relevant.
+`task_id` remains globally sufficient for `watch`, `answer`, `cancel`, and
+result lookup; those commands do not need a desktop selector.
