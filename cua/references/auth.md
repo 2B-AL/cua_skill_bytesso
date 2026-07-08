@@ -30,6 +30,10 @@ This skill uses the bare-metal Access Hub ByteSSO flow.
 The script uses `Authorization: Bearer <cua_api_...>` for all calls to the CUA
 Skill Gateway.
 
+Important: `/api/v1/skill-auth/start` and `/api/v1/skill-auth/poll` are machine
+APIs. Do not present either endpoint as a browser login URL. The only browser
+URL to show to the user is the `login_url` printed by `auth login`.
+
 ## Legacy Key Setup
 
 Existing Access Hub bearer keys that start with `cua_mcp_` can still be loaded

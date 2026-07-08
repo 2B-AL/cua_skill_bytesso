@@ -65,9 +65,10 @@ def _next_for_error(body):
     if code in ("AUTH_REQUIRED", "REFRESH_FAILED") and retry:
         return {
             "command": retry,
-            "agent_hint": "Open login_url for ByteSSO/Access Hub, run retry_command, "
-            "then re-run the original command. Keep bearer tokens out of command lines, "
-            "repo files, logs, and chat; use hidden input or --bearer-key-stdin.",
+            "agent_hint": "Run retry_command yourself. It will print exactly one ByteSSO browser login URL "
+            "for the user to open, then it will wait and store the returned CUA credential. Do not open "
+            "Access Hub API endpoints directly, and keep bearer tokens out of command lines, repo files, "
+            "logs, and chat.",
         }
     if code == "TOKEN_EXPIRED" and retry:
         return {"command": retry, "agent_hint": "Re-run retry_command, then retry the original command."}

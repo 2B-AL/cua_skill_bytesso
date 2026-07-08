@@ -29,24 +29,37 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    python3 <skill_dir>/scripts/cua.py auth login
    ```
 
-   Open the login URL printed by the command, finish ByteSSO in the browser,
-   then wait for the command to store the returned local CUA credential. Never
-   place bearer tokens in chat, command-line arguments, repo files, or logs.
+   Do not ask the user to run this command. Run it yourself, show the single
+   ByteSSO browser login URL printed by the command, wait for the user to finish
+   login, and let the command store the returned local CUA credential. Never
+   tell the user to open `skill-auth/start` or other Access Hub API endpoints
+   directly. Never place bearer tokens in chat, command-line arguments, repo
+   files, or logs.
 
-3. For real work, call `delegate` with the user's original objective:
+3. If the user only asks for their CUA/cloud desktop link, call `observe` after
+   auth is ready:
+
+   ```bash
+   python3 <skill_dir>/scripts/cua.py observe
+   ```
+
+   Return the temporary desktop access URL from the command output. Do not ask
+   the user to run `observe`.
+
+4. For real work, call `delegate` with the user's original objective:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
    ```
 
-4. Inspect `data.outcome`:
+5. Inspect `data.outcome`:
    - `completed`: use `data.result.text` as the authoritative final answer.
    - `in_progress`: run `next.command` or `watch --last`.
    - `needs_input`: relay `data.input_request.question` to the user, then run
      `answer`.
    - `failed` or `cancelled`: report the terminal state.
 
-5. Do not use local browser/search/tools to finish the delegated objective after
+6. Do not use local browser/search/tools to finish the delegated objective after
    sending it to CUA unless the user explicitly redirects you away from CUA.
 
 ## Commands

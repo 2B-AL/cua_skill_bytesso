@@ -37,8 +37,19 @@ class CuaAuthTests(unittest.TestCase):
         result = cua_auth.auth_status(state, "http://hub", "http://gateway", online=False)
 
         self.assertEqual(result["status"], "logged_out")
-        self.assertEqual(result["login_url"], "http://hub/api/v1/skill-auth/start")
+        self.assertNotIn("login_url", result)
+        self.assertIn("Run retry_command", result["agent_hint"])
         self.assertIn("auth login", result["retry_command"])
+
+    def test_missing_key_error_does_not_expose_machine_start_endpoint(self):
+        state = AuthState.load()
+
+        with self.assertRaises(SkillError) as ctx:
+            cua_auth.ensure_bearer_key(state, "http://hub")
+
+        self.assertEqual(ctx.exception.code, "AUTH_REQUIRED")
+        self.assertNotIn("login_url", ctx.exception.extra)
+        self.assertIn("auth login", ctx.exception.extra["retry_command"])
 
     def test_login_stores_skill_api_key_after_desktop_access_validation(self):
         state = AuthState.load()
