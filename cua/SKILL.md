@@ -54,6 +54,9 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
 
 5. Inspect `data.outcome`:
    - `completed`: use `data.result.text` as the authoritative final answer.
+     If artifacts are present, mention useful `text`, `image`, or `file`
+     artifact names, URLs, or paths. Treat `browser_snapshot` artifacts as
+     evidence only.
    - `in_progress`: run `next.command` or `watch --last`.
    - `needs_input`: relay `data.input_request.question` to the user, then run
      `answer`.
