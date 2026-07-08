@@ -64,6 +64,7 @@ class CuaAuthTests(unittest.TestCase):
             result = cua_auth.login(state, "http://hub", "http://gateway")
 
         self.assertEqual(result["status"], "logged_in")
+        self.assertEqual(result["mcp_url"], "http://gateway/skill/mcp")
         self.assertEqual(state.bearer_key, "cua_api_test")
         self.assertEqual(state.credential_type, "access_hub_skill_api_key")
         self.assertEqual(state.user["desktop_id"], "vm-1")

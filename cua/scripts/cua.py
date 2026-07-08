@@ -320,11 +320,23 @@ def _outcome_from_status(status):
 def _result_text(upstream):
     if not isinstance(upstream, dict):
         return None
-    candidates = [upstream.get("text")]
+    candidates = [
+        upstream.get("text"),
+        upstream.get("finalText"),
+        upstream.get("final_text"),
+        upstream.get("outputText"),
+        upstream.get("output_text"),
+    ]
     for key in ("result", "output"):
         value = upstream.get(key)
         if isinstance(value, dict):
-            candidates.append(value.get("text"))
+            candidates.extend([
+                value.get("text"),
+                value.get("finalText"),
+                value.get("final_text"),
+                value.get("outputText"),
+                value.get("output_text"),
+            ])
     for candidate in candidates:
         if isinstance(candidate, str) and candidate.strip():
             return candidate

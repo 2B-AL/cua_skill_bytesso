@@ -74,6 +74,7 @@ def login(state, access_hub_base_url, gateway_url, open_browser=True, bearer_key
         "status": "logged_in",
         "access_hub_url": access_hub_base_url,
         "gateway_url": gateway_url,
+        "mcp_url": _mcp_url_from_gateway(gateway_url),
         "user": user,
         "credential": {"type": _credential_type_for_token(token), "source": "local_cache"},
     }
@@ -243,6 +244,13 @@ def _positive_int(value, default):
     except (TypeError, ValueError):
         return default
     return out if out > 0 else default
+
+
+def _mcp_url_from_gateway(gateway_url):
+    url = gateway_url.rstrip("/")
+    if url.endswith("/skill/mcp"):
+        return url
+    return url + "/skill/mcp"
 
 
 def _read_login_token(bearer_key_stdin):
