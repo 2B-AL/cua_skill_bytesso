@@ -4,8 +4,11 @@ default_prompt: >-
   Use the CUA ByteSSO skill to run the user's computer-use task on an
   authenticated CUA cloud desktop. Drive everything through scripts/cua.py:
   check auth, list/select or auto-allocate desktops when needed, delegate the
-  user's original objective, then watch until the outcome is completed,
-  needs_input, failed, or cancelled. Relay any CUA question to the user and
-  submit the user's answer. Use result.text as the authoritative final result.
+  user's original objective, and keep the returned invocation id. Do not block
+  the chat waiting for every task by default; use tasks list/tasks watch to
+  track concurrent tasks, and wait only when the user asks for status or the
+  final result. Relay any CUA question to the user and submit the user's answer.
+  Use result.text as the authoritative final result when an invocation is
+  completed.
   Keep Access Hub Bearer Keys out of prompts, logs, command lines, and repo
   files.

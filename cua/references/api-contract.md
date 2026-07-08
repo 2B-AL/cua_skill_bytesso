@@ -21,6 +21,8 @@ Legacy `cua_mcp_...` bearer keys are still accepted for compatibility.
 | `desktops allocate` | `cua_allocate_desktop` |
 | `desktops use` | `cua_list_desktops` plus local state update |
 | `delegate` | `cua_run_task` |
+| `tasks list` | `cua_list_tasks` |
+| `tasks watch` | `cua_watch_tasks` |
 | `watch` | `cua_wait_task` |
 | `answer` | `cua_resume_task` |
 | `cancel` | `cua_cancel_task` |
@@ -60,6 +62,13 @@ can keep using `watch --last` and `answer --last`.
 When multiple desktops exist, gateway tools accept `desktop_id` where relevant.
 `task_id` remains globally sufficient for `watch`, `answer`, `cancel`, and
 result lookup; those commands do not need a desktop selector.
+
+For concurrent task execution, agents should:
+
+1. Start each task with `delegate` and keep the returned `invocation_id`.
+2. Use `tasks list` to discover active tasks if local context is lost.
+3. Use `tasks watch` with several task ids to collect status and terminal
+   results without serially blocking on one task.
 
 `cua_list_desktops` may include scheduling hints on each desktop:
 

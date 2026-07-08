@@ -41,6 +41,25 @@ allocate` requests one additional CUA desktop and is rejected if the caller is
 over quota. `desktops use` stores a local default desktop for later `observe`
 and `delegate` calls.
 
+## Tasks
+
+```bash
+python3 <skill_dir>/scripts/cua.py tasks list
+python3 <skill_dir>/scripts/cua.py tasks list --status all --limit 50
+python3 <skill_dir>/scripts/cua.py tasks watch --task-id <id> --task-id <id>
+python3 <skill_dir>/scripts/cua.py tasks watch --task-id <id> --wait-ms 60000
+python3 <skill_dir>/scripts/cua.py tasks watch --last
+```
+
+`tasks list` returns delegated CUA tasks for the current credential. The default
+filter is `active`, which is the right view for concurrent QA work. Use
+`--status all` to recover recent terminal tasks.
+
+`tasks watch` refreshes or waits on several task ids in one gateway call. It
+returns `data.tasks`, where each item uses the same invocation envelope shape as
+`watch`. Use this instead of repeatedly blocking on one task when multiple
+desktops are running work.
+
 ## Delegate
 
 ```bash
@@ -50,8 +69,9 @@ python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<user objective>
 python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>" --wait-ms 30000
 ```
 
-Pass the user's original objective directly. `--wait-ms` only controls how long
-this call waits for a state update; it does not cancel the task. `--auto`
+Pass the user's original objective directly. By default `delegate` starts the
+task and returns quickly with an invocation id. `--wait-ms` only controls how
+long this call waits for a state update; it does not cancel the task. `--auto`
 selects an idle desktop, or allocates a new one when quota allows.
 
 ## Watch
