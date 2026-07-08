@@ -37,34 +37,74 @@ class CuaAuthTests(unittest.TestCase):
         result = cua_auth.auth_status(state, "http://hub", "http://gateway", online=False)
 
         self.assertEqual(result["status"], "logged_out")
-        self.assertEqual(result["login_url"], "http://hub/mcp/setup")
+        self.assertEqual(result["login_url"], "http://hub/api/v1/skill-auth/start")
         self.assertIn("auth login", result["retry_command"])
 
-    def test_login_stores_bearer_key_after_desktop_access_validation(self):
+    def test_login_stores_skill_api_key_after_desktop_access_validation(self):
         state = AuthState.load()
         access = {
             "desktop": {"id": "vm-1", "name": "desk-1"},
             "access": {"desktop_login_url": "https://desktop.example"},
         }
 
-        with mock.patch.object(cua_auth, "_read_login_token", return_value="cua_mcp_test"), \
+        with mock.patch.object(cua_auth, "_login_with_skill_auth_flow", return_value="cua_api_test"), \
                 mock.patch.object(cua_auth, "gateway_tool_call", return_value=access) as call, \
                 mock.patch.object(cua_auth.webbrowser, "open"):
             result = cua_auth.login(state, "http://hub", "http://gateway")
 
         self.assertEqual(result["status"], "logged_in")
-        self.assertEqual(state.bearer_key, "cua_mcp_test")
+        self.assertEqual(state.bearer_key, "cua_api_test")
+        self.assertEqual(state.credential_type, "access_hub_skill_api_key")
         self.assertEqual(state.user["desktop_id"], "vm-1")
-        call.assert_called_once_with("http://gateway", "cua_mcp_test", "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=30)
+        call.assert_called_once_with("http://gateway", "cua_api_test", "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=30)
+
+    def test_login_still_accepts_legacy_bearer_key_from_stdin(self):
+        state = AuthState.load()
+        access = {"desktop": {"id": "vm-1", "name": "desk-1"}}
+
+        with mock.patch.object(cua_auth, "_read_login_token", return_value="cua_mcp_test"), \
+                mock.patch.object(cua_auth, "gateway_tool_call", return_value=access):
+            result = cua_auth.login(state, "http://hub", "http://gateway", bearer_key_stdin=True)
+
+        self.assertEqual(result["status"], "logged_in")
+        self.assertEqual(state.bearer_key, "cua_mcp_test")
+        self.assertEqual(state.credential_type, "access_hub_bearer_key")
 
     def test_login_rejects_non_access_hub_key(self):
         state = AuthState.load()
 
         with mock.patch.object(cua_auth, "_read_login_token", return_value="not-a-cua-key"), \
                 self.assertRaises(SkillError) as ctx:
-            cua_auth.login(state, "http://hub", "http://gateway", open_browser=False)
+            cua_auth.login(state, "http://hub", "http://gateway", open_browser=False, bearer_key_stdin=True)
 
         self.assertEqual(ctx.exception.code, "VALIDATION_ERROR")
+
+    def test_skill_auth_flow_polls_until_completed(self):
+        responses = [
+            {
+                "flow_id": "flow_1",
+                "poll_token": "poll_1",
+                "login_url": "http://hub/auth/sso/start",
+                "poll_interval_seconds": 1,
+                "expires_in": 60,
+            },
+            {"status": "pending"},
+            {
+                "status": "completed",
+                "credential": {"bearer_token": "cua_api_test", "key_id": "key_1"},
+            },
+        ]
+
+        with mock.patch.object(cua_auth, "_access_hub_json", side_effect=responses) as call, \
+                mock.patch.object(cua_auth.time, "sleep") as sleep, \
+                mock.patch.object(cua_auth.webbrowser, "open") as open_browser, \
+                mock.patch.object(cua_auth, "_show_login_url"):
+            token = cua_auth._login_with_skill_auth_flow("http://hub", open_browser=True)
+
+        self.assertEqual(token, "cua_api_test")
+        self.assertEqual(call.call_count, 3)
+        sleep.assert_called()
+        open_browser.assert_called_once_with("http://hub/auth/sso/start")
 
 
 if __name__ == "__main__":

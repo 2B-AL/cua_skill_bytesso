@@ -12,7 +12,9 @@ python3 <skill_dir>/scripts/cua.py auth login --bearer-key-stdin
 python3 <skill_dir>/scripts/cua.py auth logout
 ```
 
-`auth status` validates the cached Bearer Key online with `cua_get_desktop_access` unless
+`auth login` prints and opens an Access Hub ByteSSO login URL, waits for the
+browser callback, and stores the returned local CUA credential. `auth status`
+validates the cached credential online with `cua_get_desktop_access` unless
 `--offline` is set.
 
 ## Connectivity
