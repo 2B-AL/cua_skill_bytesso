@@ -284,7 +284,12 @@ def cmd_tasks_watch(args, state, session):
             "tasks": envelopes,
             "count": data.get("count", len(envelopes)),
             "completed_count": data.get("completed_count"),
+            "failed_count": data.get("failed_count"),
+            "cancelled_count": data.get("cancelled_count"),
+            "needs_input_count": data.get("needs_input_count"),
             "pending_count": data.get("pending_count"),
+            "terminal_count": data.get("terminal_count"),
+            "settled_count": data.get("settled_count"),
         },
         "next": {
             "agent_hint": "Use completed task result.text as authoritative. Keep unfinished task ids and call tasks watch again later.",
@@ -492,6 +497,13 @@ def _task_envelope(payload):
     status = payload.get("status") or task.get("status") or run.get("status") or upstream.get("status") or "running"
     outcome = _outcome_from_status(status)
     run_id = payload.get("mycua_run_id") or task.get("mycua_run_id") or run.get("id")
+    diagnostics = {"trace_id": run_id, "mycua_run_id": run_id, "raw_status": status}
+    upstream_error = upstream.get("error") if isinstance(upstream.get("error"), str) else None
+    upstream_status = upstream.get("upstream_status")
+    if upstream_error:
+        diagnostics["error"] = upstream_error
+    if upstream_status is not None:
+        diagnostics["upstream_status"] = upstream_status
     return {
         "invocation_id": task_id,
         "outcome": outcome,
@@ -506,7 +518,7 @@ def _task_envelope(payload):
             "updated_at": _updated_at(upstream),
         },
         "next_action": _next_action(outcome),
-        "diagnostics": {"trace_id": run_id, "mycua_run_id": run_id, "raw_status": status},
+        "diagnostics": diagnostics,
     }
 
 

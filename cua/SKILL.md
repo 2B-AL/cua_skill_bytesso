@@ -95,18 +95,20 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    refresh or wait on several task ids in one call. For a single task,
    `watch --last` remains a shortcut.
 
-8. Inspect `data.outcome` on single-task responses, or each item in
+8. Inspect `data.outcome` on single-task responses, or `outcome` on each item in
    `data.tasks` for `tasks watch`:
-   - `completed`: use `data.result.text` as the authoritative final answer.
+   - `completed`: use `result.text` from that response or task item as the
+     authoritative final answer.
      If artifacts are present, mention useful `text`, `image`, or `file`
      artifact names, URLs, or paths. Treat `browser_snapshot` artifacts as
      evidence only.
    - `in_progress`: keep the task id, report that CUA accepted the work, and
      call `tasks watch` or `watch --last` later when the user asks for status or
      result.
-   - `needs_input`: relay `data.input_request.question` to the user, then run
+   - `needs_input`: relay `input_request.question` to the user, then run
      `answer`.
-   - `failed` or `cancelled`: report the terminal state.
+   - `failed` or `cancelled`: report the terminal state and include useful
+     `diagnostics.error` or `diagnostics.upstream_status` when present.
 
 9. Do not use local browser/search/tools to finish the delegated objective after
    sending it to CUA unless the user explicitly redirects you away from CUA.

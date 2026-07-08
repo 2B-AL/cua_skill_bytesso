@@ -152,7 +152,12 @@ class CuaCliTests(unittest.TestCase):
                     ],
                     "count": 2,
                     "completed_count": 1,
+                    "failed_count": 0,
+                    "cancelled_count": 0,
+                    "needs_input_count": 0,
                     "pending_count": 1,
+                    "terminal_count": 1,
+                    "settled_count": 1,
                 },
             ) as call,
         ):
@@ -163,6 +168,10 @@ class CuaCliTests(unittest.TestCase):
             )
 
         self.assertEqual(result["data"]["count"], 2)
+        self.assertEqual(result["data"]["completed_count"], 1)
+        self.assertEqual(result["data"]["pending_count"], 1)
+        self.assertEqual(result["data"]["terminal_count"], 1)
+        self.assertEqual(result["data"]["settled_count"], 1)
         self.assertEqual(result["data"]["tasks"][0]["outcome"], "completed")
         self.assertEqual(result["data"]["tasks"][0]["result"]["text"], "done 1")
         self.assertEqual(result["data"]["tasks"][1]["outcome"], "in_progress")
@@ -191,6 +200,23 @@ class CuaCliTests(unittest.TestCase):
 
         self.assertEqual(envelope["outcome"], "completed")
         self.assertEqual(envelope["result"]["text"], "finished answer")
+
+    def test_task_envelope_includes_upstream_error_diagnostics(self):
+        payload = {
+            "task": {"task_id": "cua_task_1", "status": "error", "mycua_run_id": "run_1"},
+            "upstream": {
+                "status": "error",
+                "error": "my-cua run_status request failed",
+                "upstream_status": 404,
+            },
+        }
+
+        envelope = cua._task_envelope(payload)
+
+        self.assertEqual(envelope["outcome"], "failed")
+        self.assertIsNone(envelope["result"]["text"])
+        self.assertEqual(envelope["diagnostics"]["error"], "my-cua run_status request failed")
+        self.assertEqual(envelope["diagnostics"]["upstream_status"], 404)
 
     def test_task_envelope_normalizes_artifacts(self):
         payload = {
