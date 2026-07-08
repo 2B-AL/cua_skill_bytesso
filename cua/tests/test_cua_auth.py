@@ -60,46 +60,27 @@ class CuaAuthTests(unittest.TestCase):
 
         with mock.patch.object(cua_auth, "_login_with_skill_auth_flow", return_value="cua_api_test"), \
                 mock.patch.object(cua_auth, "gateway_tool_call", return_value=access) as call, \
-                mock.patch.object(cua_auth, "_configure_codex_mcp_server", return_value={"codex": "updated"}) as configure, \
                 mock.patch.object(cua_auth.webbrowser, "open"):
             result = cua_auth.login(state, "http://hub", "http://gateway")
 
         self.assertEqual(result["status"], "logged_in")
+        self.assertEqual(result["mcp_url"], "http://gateway/skill/mcp")
         self.assertEqual(state.bearer_key, "cua_api_test")
         self.assertEqual(state.credential_type, "access_hub_skill_api_key")
         self.assertEqual(state.user["desktop_id"], "vm-1")
-        self.assertEqual(result["mcp_config"]["codex"], "updated")
         call.assert_called_once_with("http://gateway", "cua_api_test", "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=30)
-        configure.assert_called_once_with("http://gateway", "cua_api_test")
 
     def test_login_still_accepts_legacy_bearer_key_from_stdin(self):
         state = AuthState.load()
         access = {"desktop": {"id": "vm-1", "name": "desk-1"}}
 
         with mock.patch.object(cua_auth, "_read_login_token", return_value="cua_mcp_test"), \
-                mock.patch.object(cua_auth, "gateway_tool_call", return_value=access), \
-                mock.patch.object(cua_auth, "_configure_codex_mcp_server", return_value={"codex": "updated"}):
+                mock.patch.object(cua_auth, "gateway_tool_call", return_value=access):
             result = cua_auth.login(state, "http://hub", "http://gateway", bearer_key_stdin=True)
 
         self.assertEqual(result["status"], "logged_in")
         self.assertEqual(state.bearer_key, "cua_mcp_test")
         self.assertEqual(state.credential_type, "access_hub_bearer_key")
-
-    def test_upsert_codex_mcp_server_adds_authorization_header(self):
-        lines = [
-            '[mcp_servers.cua_skill_v2]',
-            'url = "http://old/skill/mcp"',
-            '',
-            '[model_providers.example]',
-            'name = "example"',
-        ]
-
-        changed = cua_auth._upsert_codex_mcp_server(lines, "cua_skill_v2", "http://gateway/skill/mcp", "cua_api_test")
-
-        self.assertTrue(changed)
-        self.assertEqual(lines[1], 'url = "http://gateway/skill/mcp"')
-        self.assertEqual(lines[2], 'http_headers = { Authorization = "Bearer cua_api_test" }')
-        self.assertEqual(lines[4], '[model_providers.example]')
 
     def test_login_rejects_non_access_hub_key(self):
         state = AuthState.load()

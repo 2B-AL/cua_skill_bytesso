@@ -30,10 +30,12 @@ This skill uses the bare-metal Access Hub ByteSSO flow.
 The script uses `Authorization: Bearer <cua_api_...>` for all calls to the CUA
 Skill Gateway.
 
-When `~/.codex/config.toml` exists, `auth login` also updates the
-`[mcp_servers.cua_skill_v2]` entry with the same bearer token in
-`http_headers.Authorization`. A running Codex session may need a new session or
-restart before the remote MCP tools pick up the changed header.
+Remote MCP clients use the same credential model: connect to the `mcp_url`
+returned by `auth login` and configure the client to send
+`Authorization: Bearer <local CUA credential>`. The exact config file and reload
+behavior are Agent-specific. If an Agent cannot attach HTTP auth headers to a
+remote MCP server, use the bundled `scripts/cua.py` commands as the portable
+fallback instead of calling remote MCP directly.
 
 Important: `/api/v1/skill-auth/start` and `/api/v1/skill-auth/poll` are machine
 APIs. Do not present either endpoint as a browser login URL. The only browser
