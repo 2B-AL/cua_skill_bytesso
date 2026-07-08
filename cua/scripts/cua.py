@@ -123,7 +123,7 @@ def cmd_ping(args, state, session):
         access_hub,
         gateway_url,
         "cua_get_desktop_access",
-        {"ttl_seconds": 300},
+        {},
         timeout=30,
         retries=IDEMPOTENT_RETRIES,
     )
@@ -339,7 +339,7 @@ def cmd_cancel(args, state, session):
 def cmd_observe(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     token = cua_auth.ensure_bearer_key(state, access_hub)
-    request = {"ttl_seconds": 300}
+    request = {}
     desktop_id = args.desktop_id or session.default_desktop_id
     if desktop_id:
         request["desktop_id"] = desktop_id

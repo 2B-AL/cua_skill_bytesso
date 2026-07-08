@@ -68,7 +68,7 @@ class CuaAuthTests(unittest.TestCase):
         self.assertEqual(state.bearer_key, "cua_api_test")
         self.assertEqual(state.credential_type, "access_hub_skill_api_key")
         self.assertEqual(state.user["desktop_id"], "vm-1")
-        call.assert_called_once_with("http://gateway", "cua_api_test", "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=30)
+        call.assert_called_once_with("http://gateway", "cua_api_test", "cua_get_desktop_access", {}, timeout=30)
 
     def test_login_still_accepts_legacy_bearer_key_from_stdin(self):
         state = AuthState.load()
