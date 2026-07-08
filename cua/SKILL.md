@@ -1,6 +1,6 @@
 ---
 name: cua
-description: Use when the user wants to delegate a broad computer-use task to CUA through the ByteSSO Access Hub bare-metal environment, including web browsing, app use, file handling, multi-step desktop operation, progress watching, answering CUA questions, cancellation, or observing the cloud desktop state.
+description: Use when the user wants to delegate one or more broad computer-use tasks to CUA through the ByteSSO Access Hub bare-metal environment, including web browsing, app use, file handling, multi-step desktop operation, allocating multiple CUA desktops, running independent tasks in parallel, progress watching, answering CUA questions, cancellation, or observing the cloud desktop state.
 ---
 
 # CUA
@@ -54,8 +54,19 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
 
    - Use one CUA for dependent steps or shared browser/app/session state.
    - Use multiple CUAs for independent subtasks whose results can be merged.
+   - A user may have several allocated CUA desktop instances, subject to quota.
+     Allocate additional desktops when independent work would benefit from
+     parallel execution and no idle allocated desktop is available.
    - When splitting, preserve the user's intent and make each subtask
      self-contained.
+
+   For a parallel request such as "check tomorrow's Beijing weather, find hot
+   Beijing attractions, and check this year's admissions for famous Beijing
+   universities", run `desktops list`, allocate or select idle desktops as
+   needed, then start one `delegate` per independent subtask using different
+   `--desktop-id` values. Keep all returned invocation ids and use one
+   `tasks watch --task-id ... --task-id ...` call to collect results before
+   composing the final answer.
 
 5. If the user only asks for their CUA/cloud desktop link, call `observe` after
    auth is ready. Pass `--desktop-id` if the user or prior `desktops list`
@@ -82,7 +93,9 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    ```
 
    `--auto` chooses an idle desktop or allocates one if quota allows. Do not use
-   `--auto` if the user explicitly named a desktop.
+   `--auto` if the user explicitly named a desktop. For deliberate parallel
+   execution, prefer choosing concrete idle `desktop_id` values from
+   `desktops list` so each subtask is bound to a different CUA instance.
 
 7. Track running tasks with task commands when multiple CUA tasks may be active:
 
