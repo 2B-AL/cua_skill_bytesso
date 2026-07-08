@@ -19,6 +19,7 @@ Legacy `cua_mcp_...` bearer keys are still accepted for compatibility.
 | `ping` | `cua_get_desktop_access` plus `GET /skill/manifest` |
 | `desktops list` | `cua_list_desktops` |
 | `desktops allocate` | `cua_allocate_desktop` |
+| `desktops use` | `cua_list_desktops` plus local state update |
 | `delegate` | `cua_run_task` |
 | `watch` | `cua_wait_task` |
 | `answer` | `cua_resume_task` |
@@ -59,3 +60,18 @@ can keep using `watch --last` and `answer --last`.
 When multiple desktops exist, gateway tools accept `desktop_id` where relevant.
 `task_id` remains globally sufficient for `watch`, `answer`, `cancel`, and
 result lookup; those commands do not need a desktop selector.
+
+`cua_list_desktops` may include scheduling hints on each desktop:
+
+```json
+{
+  "desktop_id": "desk-02",
+  "instance_name": "win10-spice-desk-02",
+  "busy": true,
+  "current_task_id": "cua_task_...",
+  "current_task_status": "running"
+}
+```
+
+The CLI uses these hints for `delegate --auto`; they are advisory and the
+gateway remains authoritative when creating the task.

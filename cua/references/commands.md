@@ -33,22 +33,26 @@ python3 <skill_dir>/scripts/cua.py desktops list
 python3 <skill_dir>/scripts/cua.py desktops allocate
 python3 <skill_dir>/scripts/cua.py desktops allocate --label "qa-run"
 python3 <skill_dir>/scripts/cua.py desktops allocate --spec-code s80 --label "qa-run"
+python3 <skill_dir>/scripts/cua.py desktops use <desktop_id>
 ```
 
 `desktops list` returns the caller's allocated desktops and quota. `desktops
 allocate` requests one additional CUA desktop and is rejected if the caller is
-over quota.
+over quota. `desktops use` stores a local default desktop for later `observe`
+and `delegate` calls.
 
 ## Delegate
 
 ```bash
 python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
 python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --objective "<user objective>"
+python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<user objective>"
 python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>" --wait-ms 30000
 ```
 
 Pass the user's original objective directly. `--wait-ms` only controls how long
-this call waits for a state update; it does not cancel the task.
+this call waits for a state update; it does not cancel the task. `--auto`
+selects an idle desktop, or allocates a new one when quota allows.
 
 ## Watch
 

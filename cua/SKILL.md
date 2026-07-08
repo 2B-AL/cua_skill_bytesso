@@ -41,12 +41,14 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    ```bash
    python3 <skill_dir>/scripts/cua.py desktops list
    python3 <skill_dir>/scripts/cua.py desktops allocate --label "<optional label>"
+   python3 <skill_dir>/scripts/cua.py desktops use <desktop_id>
    ```
 
    Use `desktops list` before selecting a desktop for a QA task when multiple
    desktops may exist. Use `desktops allocate` only when the user asks for a new
-   CUA instance or no suitable existing desktop is available. Quota is enforced
-   by the gateway.
+   CUA instance or no suitable existing desktop is available. Use `desktops use`
+   to set a local default desktop for later `observe` and `delegate` calls.
+   Quota is enforced by the gateway.
 
 4. If the user only asks for their CUA/cloud desktop link, call `observe` after
    auth is ready. Pass `--desktop-id` if the user or prior `desktops list`
@@ -66,7 +68,13 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    ```bash
    python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
    python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --objective "<user objective>"
+   python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<user objective>"
    ```
+
+   `--auto` is for multi-desktop QA flows. It chooses an idle desktop when one
+   exists, allocates a new desktop if all are busy and quota allows, and fails
+   with a clear error when quota is full. Do not use `--auto` if the user
+   explicitly named a desktop.
 
 6. Inspect `data.outcome`:
    - `completed`: use `data.result.text` as the authoritative final answer.
@@ -85,7 +93,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
 
 - `auth status`, `auth login`, `auth logout`
 - `ping`
-- `desktops list`, `desktops allocate`
+- `desktops list`, `desktops allocate`, `desktops use`
 - `delegate`
 - `watch`
 - `answer`

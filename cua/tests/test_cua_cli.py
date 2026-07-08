@@ -12,7 +12,25 @@ import cua  # noqa: E402
 
 
 class CuaCliTests(unittest.TestCase):
+    class Session:
+        default_desktop_id = None
+
+        def __init__(self):
+            self.last = None
+            self.last_desktop = None
+            self.desktops = []
+
+        def set_last_invocation_id(self, invocation_id):
+            self.last = invocation_id
+
+        def set_last_task_desktop_id(self, desktop_id):
+            self.last_desktop = desktop_id
+
+        def remember_desktops(self, desktops):
+            self.desktops = desktops
+
     def test_desktops_allocate_calls_gateway_tool(self):
+        session = self.Session()
         with (
             mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
             mock.patch.object(cua.cua_auth, "ensure_bearer_key", return_value="token"),
@@ -21,10 +39,11 @@ class CuaCliTests(unittest.TestCase):
             result = cua.cmd_desktops_allocate(
                 Namespace(spec_code="s80", label="qa-run"),
                 state=object(),
-                session=object(),
+                session=session,
             )
 
         self.assertEqual(result["data"]["desktop"]["desktop_id"], "vm-2")
+        self.assertEqual(session.desktops, [{"desktop_id": "vm-2"}])
         call.assert_called_once_with(
             "http://gateway",
             "token",
@@ -34,10 +53,7 @@ class CuaCliTests(unittest.TestCase):
         )
 
     def test_delegate_passes_desktop_id(self):
-        class Session:
-            def set_last_invocation_id(self, invocation_id):
-                self.last = invocation_id
-
+        session = self.Session()
         with (
             mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
             mock.patch.object(
@@ -47,14 +63,46 @@ class CuaCliTests(unittest.TestCase):
             ) as call,
         ):
             result = cua.cmd_delegate(
-                Namespace(objective="do work", desktop_id="vm-2", wait_ms=None),
+                Namespace(objective="do work", desktop_id="vm-2", auto=False, wait_ms=None),
                 state=object(),
-                session=Session(),
+                session=session,
             )
 
         self.assertEqual(result["data"]["invocation_id"], "task-1")
+        self.assertEqual(session.last_desktop, "vm-2")
         call.assert_called_once()
         self.assertEqual(call.call_args.args[3], "cua_run_task")
+        self.assertEqual(call.call_args.args[4], {"input": "do work", "desktop_id": "vm-2"})
+
+    def test_auto_delegate_selects_idle_desktop(self):
+        session = self.Session()
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.cua_auth, "ensure_bearer_key", return_value="token"),
+            mock.patch.object(
+                cua,
+                "gateway_tool_call",
+                return_value={
+                    "quota": {"max_active_cuas": 5, "active_count": 2},
+                    "desktops": [
+                        {"desktop_id": "vm-1", "busy": True, "current_task_id": "task-busy"},
+                        {"desktop_id": "vm-2", "busy": False},
+                    ],
+                },
+            ),
+            mock.patch.object(
+                cua.cua_auth,
+                "authorized_tool_call",
+                return_value={"task_id": "task-1", "status": "running", "upstream": {}},
+            ) as call,
+        ):
+            result = cua.cmd_delegate(
+                Namespace(objective="do work", desktop_id=None, auto=True, wait_ms=None),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(result["data"]["invocation_id"], "task-1")
         self.assertEqual(call.call_args.args[4], {"input": "do work", "desktop_id": "vm-2"})
 
     def test_task_envelope_reads_mycua_final_text(self):
