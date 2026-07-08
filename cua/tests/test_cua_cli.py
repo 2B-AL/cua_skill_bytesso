@@ -23,6 +23,10 @@ class CuaCliTests(unittest.TestCase):
         def set_last_invocation_id(self, invocation_id):
             self.last = invocation_id
 
+        @property
+        def last_invocation_id(self):
+            return self.last
+
         def set_last_task_desktop_id(self, desktop_id):
             self.last_desktop = desktop_id
 
@@ -105,6 +109,81 @@ class CuaCliTests(unittest.TestCase):
         self.assertEqual(result["data"]["invocation_id"], "task-1")
         self.assertEqual(call.call_args.args[4], {"input": "do work", "desktop_id": "vm-2"})
 
+    def test_tasks_list_calls_gateway_tool(self):
+        session = self.Session()
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.cua_auth, "ensure_bearer_key", return_value="token"),
+            mock.patch.object(cua, "gateway_tool_call", return_value={"tasks": [], "count": 0}) as call,
+        ):
+            result = cua.cmd_tasks_list(
+                Namespace(status="active", limit=20),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(result["data"]["count"], 0)
+        call.assert_called_once_with(
+            "http://gateway",
+            "token",
+            "cua_list_tasks",
+            {"status": "active", "limit": 20},
+            timeout=30,
+        )
+
+    def test_tasks_watch_normalizes_multiple_results(self):
+        session = self.Session()
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.cua_auth, "ensure_bearer_key", return_value="token"),
+            mock.patch.object(
+                cua,
+                "gateway_tool_call",
+                return_value={
+                    "tasks": [
+                        {
+                            "task": {"task_id": "task-1", "status": "succeeded", "mycua_run_id": "run-1"},
+                            "upstream": {"status": "succeeded", "text": "done 1"},
+                        },
+                        {
+                            "task": {"task_id": "task-2", "status": "running", "mycua_run_id": "run-2"},
+                            "upstream": {"run": {"status": "running"}},
+                        },
+                    ],
+                    "count": 2,
+                    "completed_count": 1,
+                    "failed_count": 0,
+                    "cancelled_count": 0,
+                    "needs_input_count": 0,
+                    "pending_count": 1,
+                    "terminal_count": 1,
+                    "settled_count": 1,
+                },
+            ) as call,
+        ):
+            result = cua.cmd_tasks_watch(
+                Namespace(task_id=["task-1", "task-2"], last=False, wait_ms=1000, include_upstream=False),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(result["data"]["count"], 2)
+        self.assertEqual(result["data"]["completed_count"], 1)
+        self.assertEqual(result["data"]["pending_count"], 1)
+        self.assertEqual(result["data"]["terminal_count"], 1)
+        self.assertEqual(result["data"]["settled_count"], 1)
+        self.assertEqual(result["data"]["tasks"][0]["outcome"], "completed")
+        self.assertEqual(result["data"]["tasks"][0]["result"]["text"], "done 1")
+        self.assertEqual(result["data"]["tasks"][1]["outcome"], "in_progress")
+        self.assertEqual(session.last, "task-2")
+        call.assert_called_once_with(
+            "http://gateway",
+            "token",
+            "cua_watch_tasks",
+            {"task_ids": ["task-1", "task-2"], "include_upstream": False, "timeout_seconds": 1},
+            timeout=31,
+        )
+
     def test_task_envelope_reads_mycua_final_text(self):
         payload = {
             "task_id": "cua_task_1",
@@ -121,6 +200,23 @@ class CuaCliTests(unittest.TestCase):
 
         self.assertEqual(envelope["outcome"], "completed")
         self.assertEqual(envelope["result"]["text"], "finished answer")
+
+    def test_task_envelope_includes_upstream_error_diagnostics(self):
+        payload = {
+            "task": {"task_id": "cua_task_1", "status": "error", "mycua_run_id": "run_1"},
+            "upstream": {
+                "status": "error",
+                "error": "my-cua run_status request failed",
+                "upstream_status": 404,
+            },
+        }
+
+        envelope = cua._task_envelope(payload)
+
+        self.assertEqual(envelope["outcome"], "failed")
+        self.assertIsNone(envelope["result"]["text"])
+        self.assertEqual(envelope["diagnostics"]["error"], "my-cua run_status request failed")
+        self.assertEqual(envelope["diagnostics"]["upstream_status"], 404)
 
     def test_task_envelope_normalizes_artifacts(self):
         payload = {

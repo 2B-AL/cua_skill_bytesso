@@ -236,6 +236,67 @@ def cmd_watch(args, state, session):
     return _envelope_result(_task_envelope(payload), session)
 
 
+def cmd_tasks_list(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    request = {"status": args.status, "limit": args.limit}
+    data = gateway_tool_call(
+        gateway_url,
+        token,
+        "cua_list_tasks",
+        request,
+        timeout=30,
+    )
+    return {"data": data}
+
+
+def cmd_tasks_watch(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    task_ids = list(args.task_id or [])
+    if args.last:
+        task_ids.append(_resolve_invocation_id(args, session))
+    task_ids = _compact(task_ids)
+    if not task_ids:
+        raise SkillError("VALIDATION_ERROR", "Pass one or more --task-id values, or use --last.")
+    wait_ms = _wait_ms(args.wait_ms)
+    request = {"task_ids": task_ids, "include_upstream": args.include_upstream}
+    if wait_ms is not None:
+        request["timeout_seconds"] = _wait_seconds(wait_ms)
+    data = gateway_tool_call(
+        gateway_url,
+        token,
+        "cua_watch_tasks",
+        request,
+        timeout=_tool_timeout(wait_ms),
+    )
+    envelopes = []
+    for item in data.get("tasks") or []:
+        if not isinstance(item, dict):
+            continue
+        envelopes.append(_task_envelope(item))
+    for envelope in envelopes:
+        invocation_id = envelope.get("invocation_id")
+        if invocation_id:
+            session.set_last_invocation_id(invocation_id)
+    return {
+        "data": {
+            "tasks": envelopes,
+            "count": data.get("count", len(envelopes)),
+            "completed_count": data.get("completed_count"),
+            "failed_count": data.get("failed_count"),
+            "cancelled_count": data.get("cancelled_count"),
+            "needs_input_count": data.get("needs_input_count"),
+            "pending_count": data.get("pending_count"),
+            "terminal_count": data.get("terminal_count"),
+            "settled_count": data.get("settled_count"),
+        },
+        "next": {
+            "agent_hint": "Use completed task result.text as authoritative. Keep unfinished task ids and call tasks watch again later.",
+        },
+    }
+
+
 def cmd_answer(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     invocation_id = _resolve_invocation_id(args, session)
@@ -436,6 +497,13 @@ def _task_envelope(payload):
     status = payload.get("status") or task.get("status") or run.get("status") or upstream.get("status") or "running"
     outcome = _outcome_from_status(status)
     run_id = payload.get("mycua_run_id") or task.get("mycua_run_id") or run.get("id")
+    diagnostics = {"trace_id": run_id, "mycua_run_id": run_id, "raw_status": status}
+    upstream_error = upstream.get("error") if isinstance(upstream.get("error"), str) else None
+    upstream_status = upstream.get("upstream_status")
+    if upstream_error:
+        diagnostics["error"] = upstream_error
+    if upstream_status is not None:
+        diagnostics["upstream_status"] = upstream_status
     return {
         "invocation_id": task_id,
         "outcome": outcome,
@@ -450,7 +518,7 @@ def _task_envelope(payload):
             "updated_at": _updated_at(upstream),
         },
         "next_action": _next_action(outcome),
-        "diagnostics": {"trace_id": run_id, "mycua_run_id": run_id, "raw_status": status},
+        "diagnostics": diagnostics,
     }
 
 
@@ -693,6 +761,18 @@ def _resolve_invocation_id(args, session):
     return invocation_id
 
 
+def _compact(values):
+    out = []
+    seen = set()
+    for value in values:
+        value = str(value or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
 def _wait_ms(value):
     if value is None:
         return None
@@ -779,6 +859,21 @@ def build_parser():
     p.add_argument("--last", action="store_true", help="Use the latest saved invocation id.")
     p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
     p.set_defaults(action="watch", handler=cmd_watch)
+
+    tasks = sub.add_parser("tasks", help="List or watch multiple delegated CUA tasks.")
+    tasks_sub = tasks.add_subparsers(dest="tasks_command")
+
+    p = tasks_sub.add_parser("list", help="List delegated CUA tasks.")
+    p.add_argument("--status", default="active", help="Filter: active, all, or an exact status.")
+    p.add_argument("--limit", type=int, default=20, help="Maximum tasks to return.")
+    p.set_defaults(action="tasks.list", handler=cmd_tasks_list)
+
+    p = tasks_sub.add_parser("watch", help="Refresh or wait on several CUA tasks.")
+    p.add_argument("--task-id", action="append", help="Task/invocation id returned by delegate. Repeat for multiple tasks.")
+    p.add_argument("--last", action="store_true", help="Also include the latest saved invocation id.")
+    p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
+    p.add_argument("--include-upstream", action="store_true", help="Include raw gateway/my-cua status for non-terminal tasks.")
+    p.set_defaults(action="tasks.watch", handler=cmd_tasks_watch)
 
     p = sub.add_parser("answer", help="Submit the user's answer to CUA.")
     p.add_argument("--invocation-id", help="Invocation id returned by delegate.")

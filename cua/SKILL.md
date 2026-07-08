@@ -50,7 +50,14 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    to set a local default desktop for later `observe` and `delegate` calls.
    Quota is enforced by the gateway.
 
-4. If the user only asks for their CUA/cloud desktop link, call `observe` after
+4. Choose single or parallel delegation:
+
+   - Use one CUA for dependent steps or shared browser/app/session state.
+   - Use multiple CUAs for independent subtasks whose results can be merged.
+   - When splitting, preserve the user's intent and make each subtask
+     self-contained.
+
+5. If the user only asks for their CUA/cloud desktop link, call `observe` after
    auth is ready. Pass `--desktop-id` if the user or prior `desktops list`
    selected a specific desktop:
 
@@ -62,8 +69,11 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    Return the temporary desktop access URL from the command output. Do not ask
    the user to run `observe`.
 
-5. For real work, call `delegate` with the user's original objective. If a
-   specific desktop was selected, pass `--desktop-id`:
+6. For real work, call `delegate` with the user's original objective or one
+   independent subtask. If a specific desktop was selected, pass `--desktop-id`.
+   By default this starts a CUA task and returns quickly; do not block the chat
+   waiting for completion unless the user explicitly asks you to wait for the
+   result:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
@@ -71,22 +81,36 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<user objective>"
    ```
 
-   `--auto` is for multi-desktop QA flows. It chooses an idle desktop when one
-   exists, allocates a new desktop if all are busy and quota allows, and fails
-   with a clear error when quota is full. Do not use `--auto` if the user
-   explicitly named a desktop.
+   `--auto` chooses an idle desktop or allocates one if quota allows. Do not use
+   `--auto` if the user explicitly named a desktop.
 
-6. Inspect `data.outcome`:
-   - `completed`: use `data.result.text` as the authoritative final answer.
+7. Track running tasks with task commands when multiple CUA tasks may be active:
+
+   ```bash
+   python3 <skill_dir>/scripts/cua.py tasks list
+   python3 <skill_dir>/scripts/cua.py tasks watch --task-id <id> --task-id <id> --wait-ms 60000
+   ```
+
+   Use `tasks list` to recover task ids and statuses. Use `tasks watch` to
+   refresh or wait on several task ids in one call. For a single task,
+   `watch --last` remains a shortcut.
+
+8. Inspect `data.outcome` on single-task responses, or `outcome` on each item in
+   `data.tasks` for `tasks watch`:
+   - `completed`: use `result.text` from that response or task item as the
+     authoritative final answer.
      If artifacts are present, mention useful `text`, `image`, or `file`
      artifact names, URLs, or paths. Treat `browser_snapshot` artifacts as
      evidence only.
-   - `in_progress`: run `next.command` or `watch --last`.
-   - `needs_input`: relay `data.input_request.question` to the user, then run
+   - `in_progress`: keep the task id, report that CUA accepted the work, and
+     call `tasks watch` or `watch --last` later when the user asks for status or
+     result.
+   - `needs_input`: relay `input_request.question` to the user, then run
      `answer`.
-   - `failed` or `cancelled`: report the terminal state.
+   - `failed` or `cancelled`: report the terminal state and include useful
+     `diagnostics.error` or `diagnostics.upstream_status` when present.
 
-7. Do not use local browser/search/tools to finish the delegated objective after
+9. Do not use local browser/search/tools to finish the delegated objective after
    sending it to CUA unless the user explicitly redirects you away from CUA.
 
 ## Commands
@@ -94,6 +118,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
 - `auth status`, `auth login`, `auth logout`
 - `ping`
 - `desktops list`, `desktops allocate`, `desktops use`
+- `tasks list`, `tasks watch`
 - `delegate`
 - `watch`
 - `answer`
@@ -109,10 +134,13 @@ read [auth.md](references/auth.md). For output states, read
 
 ## Important Rules
 
-- Pass the user's original objective directly to `delegate`; do not decompose,
-  rewrite, or add hidden requirements.
+- Pass the user's original objective directly to `delegate` for single-task
+  work. For independent parallel work, split only along explicit user goals and
+  pass each CUA a self-contained subtask without changing requirements or adding
+  hidden work.
 - Treat progress summaries and screenshots as status signals only.
-- Use `watch` to decide task completion; do not use `observe` for completion.
+- Use `watch` or `tasks watch` to decide task completion; do not use `observe`
+  for completion.
 - Use `cancel` only when the user explicitly asks to stop.
 - Keep credentials local and secret. The script stores the Access Hub CUA
   credential under `~/.openclaw/cua-skill-bytesso/` with restrictive

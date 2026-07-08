@@ -1,6 +1,7 @@
 # Outcomes
 
 `delegate`, `watch`, and `answer` return an invocation envelope under `data`.
+`tasks watch` returns the same envelope shape for each entry under `data.tasks`.
 
 ```json
 {
@@ -32,7 +33,7 @@
 
 | outcome | what to do |
 | --- | --- |
-| `in_progress` | Run `next.command` or `watch --last`. Do not answer from progress text. |
+| `in_progress` | Keep the invocation id and use `watch`, `watch --last`, or `tasks watch` later. Do not answer from progress text. |
 | `needs_input` | Relay `input_request.question` to the user, then run `answer`. |
 | `completed` | Use `result.text` as the authoritative final answer. Mention artifacts if relevant. |
 | `failed` | Report the failure and diagnostics. Retry only if the user asks. |
@@ -50,6 +51,8 @@
   - `file`: present `name`, `mime_type`, `size_bytes`, `url`, or `path`.
   - `browser_snapshot`: use as diagnostic/page evidence, not as the final
     answer.
-- A timeout is not an outcome. If CUA is still running, run `watch` again.
+- A timeout is not an outcome. If CUA is still running, run `watch` or
+  `tasks watch` again.
 - Progress summaries and screenshots are not final answers.
-- Use `observe` for desktop visibility only; use `watch` for task state.
+- Use `observe` for desktop visibility only; use `watch` or `tasks watch` for
+  task state.

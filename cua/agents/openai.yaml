@@ -3,9 +3,11 @@ short_description: Delegate computer-use tasks to CUA through ByteSSO Access Hub
 default_prompt: >-
   Use the CUA ByteSSO skill to run the user's computer-use task on an
   authenticated CUA cloud desktop. Drive everything through scripts/cua.py:
-  check auth, list/select or auto-allocate desktops when needed, delegate the
-  user's original objective, then watch until the outcome is completed,
-  needs_input, failed, or cancelled. Relay any CUA question to the user and
-  submit the user's answer. Use result.text as the authoritative final result.
+  check auth, list or allocate desktops when needed, delegate one objective or
+  independent subtasks, and keep returned invocation ids. Use multiple CUAs only
+  when subtasks are independent. Track running work with tasks list/tasks watch.
+  Wait only when the user asks for status or the final result. Relay any CUA
+  question to the user and submit the user's answer. Use completed result.text
+  and artifacts as the authoritative output.
   Keep Access Hub Bearer Keys out of prompts, logs, command lines, and repo
   files.
