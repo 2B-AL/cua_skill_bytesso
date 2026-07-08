@@ -358,8 +358,134 @@ def _input_request(upstream):
 
 
 def _artifacts(upstream):
-    artifacts = upstream.get("artifacts") if isinstance(upstream, dict) else None
-    return artifacts if isinstance(artifacts, list) else []
+    if not isinstance(upstream, dict):
+        return []
+    candidates = []
+    _extend_artifacts(candidates, upstream.get("artifacts"))
+    for key in ("result", "output"):
+        value = upstream.get(key)
+        if isinstance(value, dict):
+            _extend_artifacts(candidates, value.get("artifacts"))
+            for single_key in ("artifact", "file", "image"):
+                artifact = value.get(single_key)
+                if isinstance(artifact, dict):
+                    candidates.append(artifact)
+    for single_key in ("artifact", "file", "image"):
+        artifact = upstream.get(single_key)
+        if isinstance(artifact, dict):
+            candidates.append(artifact)
+
+    normalized = []
+    seen = set()
+    for artifact in candidates:
+        item = _normalize_artifact(artifact)
+        identity = item.get("id") or item.get("url") or item.get("path") or json.dumps(item, sort_keys=True)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        normalized.append(item)
+    return normalized
+
+
+def _extend_artifacts(out, value):
+    if isinstance(value, list):
+        out.extend(item for item in value if isinstance(item, dict))
+
+
+def _normalize_artifact(artifact):
+    meta = artifact.get("meta") if isinstance(artifact.get("meta"), dict) else {}
+    mime_type = _first_string(artifact, "mime_type", "mimeType", "content_type", "contentType")
+    kind = _first_string(artifact, "kind", "type")
+    item = {
+        "id": _first_string(artifact, "id", "artifact_id", "artifactId"),
+        "type": _artifact_type(kind, mime_type),
+        "kind": kind,
+        "mime_type": mime_type,
+        "name": _first_string(artifact, "name", "filename", "file_name", "fileName") or _first_string(meta, "title", "name"),
+        "url": _first_string(artifact, "url", "download_url", "downloadUrl"),
+        "path": _first_string(artifact, "path", "file_path", "filePath"),
+        "size_bytes": _first_number(artifact, "size_bytes", "sizeBytes"),
+        "width": _first_number(artifact, "width"),
+        "height": _first_number(artifact, "height"),
+        "status": _first_string(artifact, "storage_status", "storageStatus", "status"),
+        "created_at": _first_string(artifact, "created_at", "createdAt"),
+        "updated_at": _first_string(artifact, "updated_at", "updatedAt", "last_verified_at", "lastVerifiedAt"),
+        "message_id": _first_string(artifact, "message_id", "messageId"),
+        "run_id": _first_string(artifact, "run_id", "runId"),
+        "title": _first_string(meta, "title"),
+        "source_url": _first_string(meta, "url", "source_url", "sourceUrl"),
+        "placeholder_text": _first_string(artifact, "placeholder_text", "placeholderText"),
+        "meta": meta,
+    }
+    content = _artifact_text_content(artifact)
+    if content:
+        item["text"] = _truncate_text(content, 20000)
+        if len(content) > 20000:
+            item["truncated"] = True
+    preview = _first_string(artifact, "preview", "preview_text", "previewText", "summary")
+    if preview:
+        item["preview_text"] = _truncate_text(preview, 2000)
+    return {key: value for key, value in item.items() if value not in (None, "", {})}
+
+
+def _artifact_type(kind, mime_type):
+    kind_l = str(kind or "").lower()
+    mime_l = str(mime_type or "").lower()
+    if kind_l == "browser_snapshot":
+        return "browser_snapshot"
+    if mime_l.startswith("image/") or kind_l in ("image", "screenshot", "annotation"):
+        return "image"
+    if _is_text_mime(mime_l) or kind_l in ("text", "markdown", "json", "csv"):
+        return "text"
+    return "file"
+
+
+def _is_text_mime(mime_type):
+    if not mime_type:
+        return False
+    if mime_type.startswith("text/"):
+        return True
+    return mime_type.split(";", 1)[0] in {
+        "application/json",
+        "application/ld+json",
+        "application/markdown",
+        "application/xml",
+        "application/yaml",
+        "application/x-yaml",
+        "application/javascript",
+    }
+
+
+def _artifact_text_content(artifact):
+    for key in ("text", "content_text", "contentText", "content", "body"):
+        value = artifact.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _first_string(source, *keys):
+    for key in keys:
+        value = source.get(key) if isinstance(source, dict) else None
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _first_number(source, *keys):
+    for key in keys:
+        value = source.get(key) if isinstance(source, dict) else None
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            return value
+    return None
+
+
+def _truncate_text(value, limit):
+    if len(value) <= limit:
+        return value
+    return value[:limit]
 
 
 def _progress_summary(status, upstream):
