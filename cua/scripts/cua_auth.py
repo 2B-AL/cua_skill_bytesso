@@ -60,7 +60,7 @@ def login(state, access_hub_base_url, gateway_url, open_browser=True, bearer_key
 
     user = {}
     if not no_validate:
-        access = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=30)
+        access = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {}, timeout=30)
         user = _user_from_desktop_access(access, token)
 
     state.set_bearer_key(
@@ -97,7 +97,7 @@ def auth_status(state, access_hub_base_url, gateway_url, online=True):
             "gateway_url": gateway_url,
             "credential": {"type": _credential_type_for_token(token, state), "source": _credential_source(state)},
         }
-    access = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=30)
+    access = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {}, timeout=30)
     return {
         "status": "logged_in",
         "access_hub_url": access_hub_base_url,
@@ -115,7 +115,7 @@ def logout(state):
 def online_self_test(state, access_hub_base_url, gateway_url):
     token = ensure_bearer_key(state, access_hub_base_url)
     manifest = gateway_manifest(gateway_url, timeout=30)
-    desktop = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=30)
+    desktop = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {}, timeout=30)
     return {
         "manifest": bool(manifest),
         "tool_count": len(manifest.get("tools") or []),
