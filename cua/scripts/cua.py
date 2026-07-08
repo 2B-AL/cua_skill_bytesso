@@ -139,17 +139,72 @@ def cmd_ping(args, state, session):
     }
 
 
+def cmd_desktops_list(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    data = gateway_tool_call(
+        gateway_url,
+        token,
+        "cua_list_desktops",
+        {},
+        timeout=30,
+    )
+    session.remember_desktops(data.get("desktops") or [])
+    return {"data": data}
+
+
+def cmd_desktops_allocate(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    request = {}
+    if args.spec_code:
+        request["spec_code"] = args.spec_code
+    if args.label:
+        request["label"] = args.label
+    data = gateway_tool_call(gateway_url, token, "cua_allocate_desktop", request, timeout=60)
+    desktop = data.get("desktop") if isinstance(data.get("desktop"), dict) else {}
+    if desktop.get("desktop_id"):
+        session.remember_desktops([desktop])
+    return {"data": data}
+
+
+def cmd_desktops_use(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    data = gateway_tool_call(
+        gateway_url,
+        token,
+        "cua_list_desktops",
+        {},
+        timeout=30,
+    )
+    desktops = data.get("desktops") or []
+    session.remember_desktops(desktops)
+    selected = _find_desktop(desktops, args.desktop_id)
+    if not selected:
+        raise SkillError("DESKTOP_NOT_BOUND", f"Desktop {args.desktop_id} is not allocated to this user.")
+    desktop_id = selected.get("desktop_id")
+    session.set_default_desktop_id(desktop_id)
+    return {"data": {"desktop": selected, "default_desktop_id": desktop_id}}
+
+
 def cmd_delegate(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     wait_ms = _wait_ms(args.wait_ms)
+    request = {"input": args.objective}
+    desktop_id = _resolve_delegate_desktop(args, state, session, access_hub, gateway_url)
+    if desktop_id:
+        request["desktop_id"] = desktop_id
     payload = cua_auth.authorized_tool_call(
         state,
         access_hub,
         gateway_url,
         "cua_run_task",
-        {"input": args.objective},
+        request,
         timeout=_tool_timeout(wait_ms),
     )
+    if desktop_id:
+        session.set_last_task_desktop_id(desktop_id)
     if wait_ms and wait_ms > 0:
         payload = cua_auth.authorized_tool_call(
             state,
@@ -223,9 +278,16 @@ def cmd_cancel(args, state, session):
 def cmd_observe(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     token = cua_auth.ensure_bearer_key(state, access_hub)
-    data = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", {"ttl_seconds": 300}, timeout=60)
+    request = {"ttl_seconds": 300}
+    desktop_id = args.desktop_id or session.default_desktop_id
+    if desktop_id:
+        request["desktop_id"] = desktop_id
+    data = gateway_tool_call(gateway_url, token, "cua_get_desktop_access", request, timeout=60)
     if args.include_screenshot:
-        shot = gateway_tool_call(gateway_url, token, "cua_take_screenshot", {}, timeout=60)
+        shot_request = {}
+        if desktop_id:
+            shot_request["desktop_id"] = desktop_id
+        shot = gateway_tool_call(gateway_url, token, "cua_take_screenshot", shot_request, timeout=60)
         screenshot_file = _save_screenshot_payload(shot.get("screenshot") or {})
         if screenshot_file:
             data["screenshot_file"] = screenshot_file
@@ -240,6 +302,94 @@ def cmd_observe(args, state, session):
             "Use watch, not observe, to decide whether a delegated task is done.",
         },
     }
+
+
+def _resolve_delegate_desktop(args, state, session, access_hub, gateway_url):
+    if args.desktop_id:
+        return args.desktop_id
+    if not args.auto:
+        return session.default_desktop_id
+    token = cua_auth.ensure_bearer_key(state, access_hub)
+    listing = gateway_tool_call(
+        gateway_url,
+        token,
+        "cua_list_desktops",
+        {},
+        timeout=30,
+    )
+    desktops = listing.get("desktops") or []
+    quota = listing.get("quota") if isinstance(listing.get("quota"), dict) else {}
+    session.remember_desktops(desktops)
+    selected = _select_idle_desktop(desktops)
+    if selected:
+        return selected.get("desktop_id")
+    max_active = int(quota.get("max_active_cuas") or 0)
+    active_count = int(quota.get("active_count") or len(desktops))
+    if not desktops or (max_active > 0 and active_count < max_active):
+        allocated = gateway_tool_call(
+            gateway_url,
+            token,
+            "cua_allocate_desktop",
+            {},
+            timeout=60,
+        )
+        desktop = allocated.get("desktop") if isinstance(allocated.get("desktop"), dict) else {}
+        if desktop.get("desktop_id"):
+            session.remember_desktops([desktop])
+            return desktop.get("desktop_id")
+    raise SkillError(
+        "NO_IDLE_DESKTOP",
+        "All allocated CUA desktops are busy and quota is full. Wait for a task to finish or pass --desktop-id explicitly.",
+        quota=quota,
+    )
+
+
+def _select_idle_desktop(desktops):
+    default = None
+    first_idle = None
+    for desktop in desktops:
+        if not isinstance(desktop, dict):
+            continue
+        if not desktop.get("desktop_id"):
+            continue
+        if desktop.get("is_default"):
+            default = desktop
+        if not _desktop_busy(desktop) and first_idle is None:
+            first_idle = desktop
+            if not desktop.get("is_default"):
+                continue
+        if desktop.get("is_default") and not _desktop_busy(desktop):
+            return desktop
+    if first_idle:
+        return first_idle
+    if default and not _desktop_busy(default):
+        return default
+    return None
+
+
+def _desktop_busy(desktop):
+    if desktop.get("busy") is True or desktop.get("current_task_id"):
+        return True
+    status = str(desktop.get("current_task_status") or "").strip().lower()
+    return status and status not in ("succeeded", "completed", "success", "failed", "error", "cancelled", "canceled")
+
+
+def _find_desktop(desktops, selector):
+    selector = str(selector or "").strip()
+    if not selector:
+        return None
+    for desktop in desktops:
+        if not isinstance(desktop, dict):
+            continue
+        aliases = {
+            str(desktop.get("desktop_id") or "").strip(),
+            str(desktop.get("cua_uid") or "").strip(),
+            str(desktop.get("instance_name") or "").strip(),
+            str(desktop.get("name") or "").strip(),
+        }
+        if selector in aliases:
+            return desktop
+    return None
 
 
 def cmd_self_test(args, state, session):
@@ -602,8 +752,25 @@ def build_parser():
     p = sub.add_parser("ping", help="Read-only connectivity check.")
     p.set_defaults(action="ping", handler=cmd_ping)
 
+    desktops = sub.add_parser("desktops", help="List or allocate CUA desktops.")
+    desktops_sub = desktops.add_subparsers(dest="desktops_command")
+
+    p = desktops_sub.add_parser("list", help="List allocated CUA desktops and quota.")
+    p.set_defaults(action="desktops.list", handler=cmd_desktops_list)
+
+    p = desktops_sub.add_parser("allocate", help="Allocate an additional CUA desktop.")
+    p.add_argument("--spec-code", help="Optional CUA spec code.")
+    p.add_argument("--label", help="Optional human label for this desktop.")
+    p.set_defaults(action="desktops.allocate", handler=cmd_desktops_allocate)
+
+    p = desktops_sub.add_parser("use", help="Set the local default desktop for observe and delegate.")
+    p.add_argument("desktop_id", help="Desktop id, CUA uid, or instance name.")
+    p.set_defaults(action="desktops.use", handler=cmd_desktops_use)
+
     p = sub.add_parser("delegate", help="Delegate a user objective to CUA.")
     p.add_argument("--objective", required=True, help="The user's original objective.")
+    p.add_argument("--desktop-id", help="Optional desktop id/cua uid/instance name.")
+    p.add_argument("--auto", action="store_true", help="Choose an idle desktop or allocate one if quota allows.")
     p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
     p.set_defaults(action="delegate", handler=cmd_delegate)
 
@@ -628,6 +795,7 @@ def build_parser():
     p = sub.add_parser("observe", help="Read-only desktop state and temporary access URL.")
     p.add_argument("--invocation-id", help="Accepted for compatibility; desktop access is caller-scoped.")
     p.add_argument("--last", action="store_true", help="Accepted for compatibility; desktop access is caller-scoped.")
+    p.add_argument("--desktop-id", help="Optional desktop id/cua uid/instance name.")
     p.add_argument("--include-screenshot", action="store_true", help="Save an optional screenshot to a temp file.")
     p.set_defaults(action="observe", handler=cmd_observe)
 

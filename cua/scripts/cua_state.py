@@ -125,10 +125,52 @@ class SessionState(_JsonFile):
     def last_invocation_id(self):
         return self.data.get("last_invocation_id")
 
+    @property
+    def default_desktop_id(self):
+        return self.data.get("default_desktop_id")
+
+    @property
+    def last_task_desktop_id(self):
+        return self.data.get("last_task_desktop_id")
+
     def set_last_invocation_id(self, invocation_id):
         if not invocation_id:
             return
         self.data["last_invocation_id"] = invocation_id
+        self.save()
+
+    def set_default_desktop_id(self, desktop_id):
+        if not desktop_id:
+            return
+        self.data["default_desktop_id"] = desktop_id
+        self.save()
+
+    def set_last_task_desktop_id(self, desktop_id):
+        if not desktop_id:
+            return
+        self.data["last_task_desktop_id"] = desktop_id
+        self.save()
+
+    def remember_desktops(self, desktops):
+        if not isinstance(desktops, list):
+            return
+        current = self.data.get("desktops")
+        if not isinstance(current, dict):
+            current = {}
+        for desktop in desktops:
+            if not isinstance(desktop, dict):
+                continue
+            desktop_id = desktop.get("desktop_id")
+            if not desktop_id:
+                continue
+            current[desktop_id] = {
+                "name": desktop.get("instance_name") or desktop.get("name") or desktop_id,
+                "last_seen_at": desktop.get("last_access_at") or desktop.get("assigned_at"),
+                "is_default": bool(desktop.get("is_default")),
+            }
+            if desktop.get("is_default") and not self.data.get("default_desktop_id"):
+                self.data["default_desktop_id"] = desktop_id
+        self.data["desktops"] = current
         self.save()
 
 
