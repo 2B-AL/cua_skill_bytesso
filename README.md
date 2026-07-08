@@ -6,14 +6,14 @@ install shape (`cua/` is the actual skill) but targets the bare-metal trial
 environment:
 
 - Access Hub: `http://10.37.98.200/cua-access`
-- CUA Skill MCP: `http://10.37.98.200/skill/mcp`
+- CUA Skill Gateway: `http://10.37.98.200`
 - Auth credential: Access Hub Bearer Key (`cua_mcp_...`) generated after
   ByteSSO login
 
 Related repos:
 
 - Access Hub: [`2B-AL/cua-mcp-access-hub`](https://github.com/2B-AL/cua-mcp-access-hub)
-- Skill MCP Gateway: [`2B-AL/cua-mcp-server`](https://github.com/2B-AL/cua-mcp-server)
+- Skill Gateway Lite: [`2B-AL/cua-skill-gateway-lite`](https://github.com/2B-AL/cua-skill-gateway-lite)
 - Bare-metal CUA runtime: [`luohao.brian/my-cua`](https://code.byted.org/luohao.brian/my-cua)
 
 ## Install
@@ -62,7 +62,7 @@ Override endpoints without editing the repo:
 
 ```bash
 export CUA_SKILL_ACCESS_HUB_BASE_URL=http://10.37.98.200/cua-access
-export CUA_SKILL_MCP_URL=http://10.37.98.200/skill/mcp
+export CUA_SKILL_GATEWAY_URL=http://10.37.98.200
 ```
 
 ## Update

@@ -1,109 +1,53 @@
 # API Contract
 
-The CLI talks to the CUA Skill MCP endpoint:
+The CLI talks to the AP-style CUA Skill Gateway:
 
 ```text
-POST http://10.37.98.200/skill/mcp
+GET  http://10.37.98.200/skill/manifest
+POST http://10.37.98.200/skill/tools/{tool}
 Authorization: Bearer cua_mcp_...
 Content-Type: application/json
-Accept: application/json, text/event-stream
+Accept: application/json
 ```
 
-The MCP protocol version used for initialize is `2025-06-18`.
+## Tools Used By This Skill
 
-## Tools
+| CLI command | Gateway tool |
+| --- | --- |
+| `ping` | `cua_get_desktop_access` plus `GET /skill/manifest` |
+| `delegate` | `cua_run_task` |
+| `watch` | `cua_wait_task` |
+| `answer` | `cua_resume_task` |
+| `cancel` | `cua_cancel_task` |
+| `observe` | `cua_get_desktop_access`, optionally `cua_take_screenshot` |
 
-### `cua_ping`
+## Gateway Envelope
 
-Input:
-
-```json
-{}
-```
-
-Output:
+Success:
 
 ```json
 {
   "ok": true,
-  "server": { "name": "cua-skill", "version": "0.1.0" },
-  "auth": {
-    "authenticated": true,
-    "auth_type": "access_hub_mcp_key",
-    "org_id": "...",
-    "user_id": "...",
-    "team_id": null,
-    "desktop_bound": true
-  },
-  "agent_hint": "..."
+  "tool": "cua_run_task",
+  "result": {}
 }
 ```
 
-### `cua_delegate`
-
-Input:
-
-```json
-{ "objective": "user objective", "wait_ms": null }
-```
-
-### `cua_watch`
-
-Input:
-
-```json
-{ "invocation_id": "cua_inv_...", "wait_ms": null }
-```
-
-### `cua_answer`
-
-Input:
-
-```json
-{ "invocation_id": "cua_inv_...", "answer": "user answer", "wait_ms": null }
-```
-
-### `cua_cancel`
-
-Input:
-
-```json
-{ "invocation_id": "cua_inv_..." }
-```
-
-### `cua_observe`
-
-Input:
-
-```json
-{ "invocation_id": null, "include_screenshot": false }
-```
-
-## Unified Envelope
-
-`delegate`, `watch`, and `answer` return:
+Failure:
 
 ```json
 {
-  "invocation_id": "cua_inv_...",
-  "outcome": "in_progress",
-  "result": { "text": null, "artifacts": [] },
-  "input_request": null,
-  "progress": { "summary": "...", "step_count": 1, "updated_at": "..." },
-  "next_action": { "type": "watch", "agent_hint": "..." },
-  "diagnostics": { "trace_id": null }
+  "ok": false,
+  "tool": "cua_run_task",
+  "error": {
+    "code": "Unauthorized",
+    "message": "invalid bearer token",
+    "retryable": false
+  }
 }
 ```
 
-## Config Keys
+## Output Mapping
 
-`config.json` supports:
-
-```json
-{
-  "access_hub_base_url": "http://10.37.98.200/cua-access",
-  "skill_mcp_url": "http://10.37.98.200/skill/mcp",
-  "mcp_server_name": "cua_skill_v2",
-  "mcp_transport": "MCP Streamable HTTP"
-}
-```
+The CLI maps gateway `task_id` to the existing `invocation_id` field so agents
+can keep using `watch --last` and `answer --last`.

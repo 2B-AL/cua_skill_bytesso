@@ -20,14 +20,14 @@ This skill uses the bare-metal Access Hub ByteSSO flow.
 4. Access Hub allocates or resolves the user's CUA desktop.
 5. The user generates an Access Hub Bearer Key that starts with `cua_mcp_`.
 6. The user pastes that key into the script's hidden prompt.
-7. The script validates the key with read-only `cua_ping` and stores it in:
+7. The script validates the key with read-only `cua_get_desktop_access` and stores it in:
 
    ```text
    ~/.openclaw/cua-skill-bytesso/auth.json
    ```
 
 The script uses `Authorization: Bearer <cua_mcp_...>` for all calls to the CUA
-Skill MCP endpoint.
+Skill Gateway.
 
 ## Non-Interactive Setup
 
@@ -45,7 +45,7 @@ over long-lived shell environment variables.
 
 ```bash
 export CUA_SKILL_ACCESS_HUB_BASE_URL=http://10.37.98.200/cua-access
-export CUA_SKILL_MCP_URL=http://10.37.98.200/skill/mcp
+export CUA_SKILL_GATEWAY_URL=http://10.37.98.200
 ```
 
 The bundled defaults live in `config.json`.
