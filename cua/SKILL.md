@@ -50,27 +50,12 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    to set a local default desktop for later `observe` and `delegate` calls.
    Quota is enforced by the gateway.
 
-4. Decide whether the user's request can run on one CUA or several CUAs:
+4. Choose single or parallel delegation:
 
-   - Use one CUA when steps depend on each other, share browser/app state, need
-     one logged-in session, or require a single coherent desktop workflow.
-   - Use several CUAs when the request contains independent research, browsing,
-     data collection, QA, or verification subtasks whose results can be merged
-     later.
-   - Do not split just to be clever. Split only when parallel execution will
-     reduce latency or isolate independent work without changing the user's
-     intent.
-
-   For parallel work, use `desktops list` first. Assign each independent
-   subtask to an idle desktop with `delegate --desktop-id`, or use
-   `delegate --auto` when any idle/new desktop is acceptable. Keep each subtask
-   self-contained and faithful to the user's request, then combine the completed
-   `result.text` and artifacts into one final answer.
-
-   Example: for "查明天北京天气、热门景点、今年北京著名大学招生情况",
-   it is appropriate to run three CUA tasks in parallel: weather, attractions,
-   and university admissions. Report each CUA's result separately before the
-   combined summary.
+   - Use one CUA for dependent steps or shared browser/app/session state.
+   - Use multiple CUAs for independent subtasks whose results can be merged.
+   - When splitting, preserve the user's intent and make each subtask
+     self-contained.
 
 5. If the user only asks for their CUA/cloud desktop link, call `observe` after
    auth is ready. Pass `--desktop-id` if the user or prior `desktops list`
@@ -85,10 +70,10 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    the user to run `observe`.
 
 6. For real work, call `delegate` with the user's original objective or one
-   independent subtask derived from it. If a
-   specific desktop was selected, pass `--desktop-id`. By default this starts a
-   CUA task and returns quickly; do not block the chat waiting for completion
-   unless the user explicitly asks you to wait for the result:
+   independent subtask. If a specific desktop was selected, pass `--desktop-id`.
+   By default this starts a CUA task and returns quickly; do not block the chat
+   waiting for completion unless the user explicitly asks you to wait for the
+   result:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
@@ -96,10 +81,8 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<user objective>"
    ```
 
-   `--auto` is for multi-desktop QA flows. It chooses an idle desktop when one
-   exists, allocates a new desktop if all are busy and quota allows, and fails
-   with a clear error when quota is full. Do not use `--auto` if the user
-   explicitly named a desktop.
+   `--auto` chooses an idle desktop or allocates one if quota allows. Do not use
+   `--auto` if the user explicitly named a desktop.
 
 7. Track running tasks with task commands when multiple CUA tasks may be active:
 

@@ -60,36 +60,20 @@ returns `data.tasks`, where each item uses the same invocation envelope shape as
 `watch`. Use this instead of repeatedly blocking on one task when multiple
 desktops are running work.
 
-## Parallel Delegation
+## Parallel Tasks
 
-Agents should decide whether a request is one desktop workflow or several
-independent CUA tasks.
-
-Use parallel CUA tasks when the user asks for independent research, browsing,
-QA, or data collection that can be merged afterward. Examples:
-
-- Weather for a city, popular attractions in that city, and university
-  admissions information for that city.
-- Testing three unrelated URLs or product flows.
-- Collecting data from several independent dashboards.
-
-Keep one CUA task when the work needs shared login/session state, one browser
-history, one file/app context, or step-by-step dependencies.
-
-Recommended parallel sequence:
+Use several `delegate` calls only for independent subtasks. Track their task ids
+with `tasks watch`:
 
 ```bash
 python3 <skill_dir>/scripts/cua.py desktops list
 python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<subtask A>"
 python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<subtask B>"
-python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<subtask C>"
-python3 <skill_dir>/scripts/cua.py tasks watch --task-id <idA> --task-id <idB> --task-id <idC> --wait-ms 60000
+python3 <skill_dir>/scripts/cua.py tasks watch --task-id <idA> --task-id <idB> --wait-ms 60000
 ```
 
-Each subtask must be self-contained and faithful to the user's request. When
-all tasks finish, present each CUA result separately and then provide the
-combined answer. If some tasks are still running, report completed parts and
-keep the unfinished task ids for later `tasks watch`.
+Each subtask must be self-contained. Use completed `result.text` and artifacts
+as the source for the final response.
 
 ## Delegate
 
