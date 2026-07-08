@@ -32,9 +32,9 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    Do not ask the user to run this command. Run it yourself, show the single
    ByteSSO browser login URL printed by the command, wait for the user to finish
    login, and let the command store the returned local CUA credential. Never
-   tell the user to open `skill-auth/start` or other Access Hub API endpoints
-   directly. Never place bearer tokens in chat, command-line arguments, repo
-   files, or logs.
+   tell the user to open `skill-auth/start`, the Access Hub root URL, or other
+   Access Hub API endpoints directly. Never place bearer tokens in chat,
+   command-line arguments, repo files, or logs.
 
 3. If the user only asks for their CUA/cloud desktop link, call `observe` after
    auth is ready:
