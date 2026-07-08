@@ -34,5 +34,9 @@ Branch on `error.code`.
   the URL printed by that command.
 - **Token worked yesterday but fails now**: it may have been revoked or the
   Access Hub HMAC secret may have rotated. Rerun `auth login`.
+- **MCP tools still return `401 missing authorization bearer token` after
+  `auth login`**: check that `~/.codex/config.toml` has
+  `[mcp_servers.cua_skill_v2].http_headers.Authorization`, then start a new
+  Codex session so the MCP client reloads the header.
 - **`self-test` passes but `self-test --online` fails**: Local install is fine;
   investigate network, Skill Gateway, Access Hub key, or desktop allocation.

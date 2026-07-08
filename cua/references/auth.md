@@ -30,6 +30,11 @@ This skill uses the bare-metal Access Hub ByteSSO flow.
 The script uses `Authorization: Bearer <cua_api_...>` for all calls to the CUA
 Skill Gateway.
 
+When `~/.codex/config.toml` exists, `auth login` also updates the
+`[mcp_servers.cua_skill_v2]` entry with the same bearer token in
+`http_headers.Authorization`. A running Codex session may need a new session or
+restart before the remote MCP tools pick up the changed header.
+
 Important: `/api/v1/skill-auth/start` and `/api/v1/skill-auth/poll` are machine
 APIs. Do not present either endpoint as a browser login URL. The only browser
 URL to show to the user is the `login_url` printed by `auth login`.

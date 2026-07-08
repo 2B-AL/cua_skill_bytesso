@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import webbrowser
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -70,12 +71,14 @@ def login(state, access_hub_base_url, gateway_url, open_browser=True, bearer_key
         user=user,
         credential_type=_credential_type_for_token(token),
     )
+    mcp_config = _configure_codex_mcp_server(gateway_url, token)
     return {
         "status": "logged_in",
         "access_hub_url": access_hub_base_url,
         "gateway_url": gateway_url,
         "user": user,
         "credential": {"type": _credential_type_for_token(token), "source": "local_cache"},
+        "mcp_config": mcp_config,
     }
 
 
@@ -243,6 +246,77 @@ def _positive_int(value, default):
     except (TypeError, ValueError):
         return default
     return out if out > 0 else default
+
+
+def _configure_codex_mcp_server(gateway_url, token):
+    config = Path.home() / ".codex" / "config.toml"
+    if not config.exists():
+        return {"codex": "skipped", "reason": "config_not_found"}
+    try:
+        lines = config.read_text(encoding="utf-8").splitlines()
+        changed = _upsert_codex_mcp_server(lines, "cua_skill_v2", _mcp_url_from_gateway(gateway_url), token)
+        if changed:
+            config.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return {"codex": "updated" if changed else "already_configured", "server_name": "cua_skill_v2"}
+    except OSError as exc:
+        return {"codex": "failed", "reason": str(exc)}
+
+
+def _mcp_url_from_gateway(gateway_url):
+    url = gateway_url.rstrip("/")
+    if url.endswith("/skill/mcp"):
+        return url
+    return url + "/skill/mcp"
+
+
+def _upsert_codex_mcp_server(lines, server_name, mcp_url, token):
+    table = f"[mcp_servers.{server_name}]"
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == table:
+            start = i
+            break
+    changed = False
+    if start is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([table, f'url = "{mcp_url}"', f'http_headers = {{ Authorization = "Bearer {token}" }}'])
+        return True
+
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            end = i
+            break
+
+    url_line = f'url = "{mcp_url}"'
+    header_line = f'http_headers = {{ Authorization = "Bearer {token}" }}'
+    url_idx = None
+    header_idx = None
+    for i in range(start + 1, end):
+        stripped = lines[i].strip()
+        if stripped.startswith("url"):
+            url_idx = i
+        if stripped.startswith("http_headers"):
+            header_idx = i
+
+    if url_idx is None:
+        lines.insert(start + 1, url_line)
+        changed = True
+        end += 1
+        url_idx = start + 1
+    elif lines[url_idx] != url_line:
+        lines[url_idx] = url_line
+        changed = True
+
+    if header_idx is None:
+        lines.insert(url_idx + 1, header_line)
+        changed = True
+    elif lines[header_idx] != header_line:
+        lines[header_idx] = header_line
+        changed = True
+    return changed
 
 
 def _read_login_token(bearer_key_stdin):
