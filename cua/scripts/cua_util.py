@@ -23,9 +23,11 @@ class SkillError(Exception):
     """An error that maps to the unified JSON error envelope.
 
     `code` follows the gateway error codes (AUTH_REQUIRED, TOKEN_EXPIRED,
-    REFRESH_FAILED, FORBIDDEN, DESKTOP_NOT_BOUND, INVOCATION_NOT_FOUND,
-    INVOCATION_NOT_WAITING_INPUT, CUA_BACKEND_UNAVAILABLE, RATE_LIMITED,
-    VALIDATION_ERROR, NETWORK, INTERNAL).
+    REFRESH_FAILED, FORBIDDEN, DESKTOP_NOT_BOUND, DESKTOP_BUSY, CONFLICT,
+    INVOCATION_NOT_FOUND, INVOCATION_NOT_WAITING_INPUT,
+    CUA_BACKEND_UNAVAILABLE, GATEWAY_TIMEOUT, MODEL_TIMEOUT,
+    DESKTOP_UNHEALTHY, SESSION_CLEANUP, RATE_LIMITED, VALIDATION_ERROR,
+    NETWORK, INTERNAL).
     """
 
     def __init__(self, code, message, **extra):
@@ -77,6 +79,11 @@ def _next_for_error(body):
             "agent_hint": "This CUA backend does not support scheduled tasks. Do NOT retry with different "
             "arguments and do NOT fall back to any external scheduler or host automation. Tell the user "
             "scheduling is unavailable; if they want it now, run the goal once with `task run`/`delegate`.",
+        }
+    if code == "DESKTOP_BUSY":
+        return {
+            "agent_hint": "The selected desktop already has an active run. Do not retry blindly. "
+            "Use tasks list/watch to recover the active task, or select a different idle desktop.",
         }
     if code in RETRYABLE_ERROR_CODES:
         return {

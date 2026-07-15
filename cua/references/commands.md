@@ -55,7 +55,9 @@ python3 <skill_dir>/scripts/cua.py tasks watch --last
 filter is `active`, which is the right view for concurrent QA work. Use
 `--status all` to recover recent terminal tasks.
 
-`tasks watch` refreshes or waits on several task ids in one gateway call. It
+`tasks watch` refreshes or waits on several task ids. `--wait-ms` is the total
+client-side wait budget. The CLI splits budgets above 60 seconds into several
+gateway calls because each server wait is capped at 60 seconds. It
 returns `data.tasks`, where each item uses the same invocation envelope shape as
 `watch`. Use this instead of repeatedly blocking on one task when multiple
 desktops are running work.
@@ -85,9 +87,10 @@ python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>" --wai
 ```
 
 Pass the user's original objective directly. By default `delegate` starts the
-task and returns quickly with an invocation id. `--wait-ms` only controls how
-long this call waits for a state update; it does not cancel the task. `--auto`
-selects an idle desktop, or allocates a new one when quota allows.
+task and returns quickly with an invocation id. `--wait-ms` is a total
+client-side wait budget; the CLI polls in server-sized chunks of at most 60
+seconds and does not cancel the task when the budget expires. `--auto` selects
+an idle desktop, or allocates a new one when quota allows.
 
 ## Watch
 
@@ -98,7 +101,9 @@ python3 <skill_dir>/scripts/cua.py watch --wait-ms 60000
 ```
 
 If `--invocation-id` is omitted, the script uses the last invocation id saved by
-`delegate`, `watch`, or `answer`.
+`delegate`, `watch`, or `answer`. For example, `--wait-ms 900000` waits for up
+to 15 minutes through multiple gateway calls while preserving the gateway's
+60-second per-request maximum.
 
 ## Answer
 

@@ -1,9 +1,11 @@
 # Troubleshooting
 
-All errors arrive as:
+All errors arrive as a structured envelope. `reason`, `request_id`,
+`upstream_code`, `upstream_status`, `retryable`, and `context` are included when
+the gateway provides them:
 
 ```json
-{ "ok": false, "action": "...", "error": { "code": "...", "message": "..." } }
+{ "ok": false, "action": "...", "error": { "code": "...", "message": "...", "reason": "...", "request_id": "..." } }
 ```
 
 Branch on `error.code`.
@@ -13,10 +15,15 @@ Branch on `error.code`.
 | `AUTH_REQUIRED` | no local CUA credential, revoked token, expired login flow, or missing auth header | run `error.retry_command`; it will print the one browser login URL to show the user |
 | `FORBIDDEN` | the key is valid but not allowed for this action | tell the user they lack permission |
 | `DESKTOP_NOT_BOUND` | Access Hub has not allocated a CUA desktop for the user | open Access Hub resources/setup page and allocate or contact an admin |
+| `DESKTOP_BUSY` | the selected desktop already has an active run | recover/watch the active task or select another idle desktop; do not retry blindly |
+| `CONFLICT` | another operation conflicts with the requested state transition | inspect `reason`, `upstream_code`, and `context` before deciding whether to retry |
 | `INVOCATION_NOT_FOUND` | wrong invocation id | use the id from `delegate` or run with `--last` |
 | `INVOCATION_NOT_WAITING_INPUT` | `answer` was sent when CUA was not asking | run `watch` first |
 | `CUA_BACKEND_UNAVAILABLE` | MCP gateway or CUA backend is unavailable | wait and retry |
 | `GATEWAY_TIMEOUT` | gateway wait timed out | run `watch --last`; the task may still be running |
+| `MODEL_TIMEOUT` | the model provider timed out | inspect diagnostics and retry only when the operation is safe |
+| `DESKTOP_UNHEALTHY` | the allocated desktop or guest runtime is unhealthy | report the desktop and request id; do not treat it as an auth failure |
+| `SESSION_CLEANUP` | a prior session could not be cleaned up | report the task/run context and avoid creating a retry loop |
 | `RATE_LIMITED` | too many requests | wait, then retry |
 | `VALIDATION_ERROR` | bad local argument or wrong key format | fix the argument or login input |
 | `NETWORK` | cannot reach Access Hub or `/skill/manifest` / `/skill/tools/{tool}` | check VPN/network and endpoint overrides |

@@ -105,8 +105,9 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    ```
 
    Use `tasks list` to recover task ids and statuses. Use `tasks watch` to
-   refresh or wait on several task ids in one call. For a single task,
-   `watch --last` remains a shortcut.
+   refresh or wait on several task ids. `--wait-ms` is the total client-side
+   wait budget; budgets above 60 seconds are split into multiple gateway calls.
+   For a single task, `watch --last` remains a shortcut.
 
 8. Inspect `data.outcome` on single-task responses, or `outcome` on each item in
    `data.tasks` for `tasks watch`:

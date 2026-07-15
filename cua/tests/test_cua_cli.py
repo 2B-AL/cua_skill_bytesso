@@ -184,6 +184,59 @@ class CuaCliTests(unittest.TestCase):
             timeout=31,
         )
 
+    def test_watch_uses_total_wait_budget_in_server_sized_chunks(self):
+        session = self.Session()
+        responses = [
+            {"task_id": "task-1", "status": "running", "upstream": {}},
+            {"task_id": "task-1", "status": "running", "upstream": {}},
+            {"task_id": "task-1", "status": "succeeded", "upstream": {"status": "succeeded", "text": "done"}},
+        ]
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.cua_auth, "authorized_tool_call", side_effect=responses) as call,
+        ):
+            result = cua.cmd_watch(
+                Namespace(invocation_id="task-1", last=False, wait_ms=125000),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(result["data"]["outcome"], "completed")
+        self.assertEqual([item.args[4]["timeout_seconds"] for item in call.call_args_list], [60, 60, 5])
+        self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [90, 90, 35])
+
+    def test_tasks_watch_uses_total_wait_budget_in_server_sized_chunks(self):
+        session = self.Session()
+        responses = [
+            {
+                "tasks": [{"task": {"task_id": "task-1", "status": "running"}}],
+                "count": 1,
+                "pending_count": 1,
+            },
+            {
+                "tasks": [{"task": {"task_id": "task-1", "status": "succeeded"}, "upstream": {"text": "done"}}],
+                "count": 1,
+                "completed_count": 1,
+                "pending_count": 0,
+                "terminal_count": 1,
+                "settled_count": 1,
+            },
+        ]
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.cua_auth, "ensure_bearer_key", return_value="token"),
+            mock.patch.object(cua, "gateway_tool_call", side_effect=responses) as call,
+        ):
+            result = cua.cmd_tasks_watch(
+                Namespace(task_id=["task-1"], last=False, wait_ms=61000, include_upstream=False),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(result["data"]["tasks"][0]["outcome"], "completed")
+        self.assertEqual([item.args[3]["timeout_seconds"] for item in call.call_args_list], [60, 1])
+        self.assertEqual([item.kwargs["timeout"] for item in call.call_args_list], [90, 31])
+
     def test_task_envelope_reads_mycua_final_text(self):
         payload = {
             "task_id": "cua_task_1",
@@ -217,6 +270,29 @@ class CuaCliTests(unittest.TestCase):
         self.assertIsNone(envelope["result"]["text"])
         self.assertEqual(envelope["diagnostics"]["error"], "my-cua run_status request failed")
         self.assertEqual(envelope["diagnostics"]["upstream_status"], 404)
+
+    def test_task_envelope_preserves_structured_error_diagnostics(self):
+        payload = {
+            "request_id": "req-1",
+            "task": {"task_id": "task-1", "status": "error", "mycua_run_id": "run-1"},
+            "upstream": {
+                "status": "error",
+                "error": "run start failed",
+                "reason": "A run is already active for this desktop.",
+                "upstream_code": "active_run_conflict",
+                "upstream_status": 409,
+                "context": {"active_run_id": "run-active", "desktop_id": "desk-1"},
+            },
+        }
+
+        diagnostics = cua._task_envelope(payload)["diagnostics"]
+
+        self.assertEqual(diagnostics["error"], "run start failed")
+        self.assertEqual(diagnostics["reason"], "A run is already active for this desktop.")
+        self.assertEqual(diagnostics["upstream_code"], "active_run_conflict")
+        self.assertEqual(diagnostics["upstream_status"], 409)
+        self.assertEqual(diagnostics["request_id"], "req-1")
+        self.assertEqual(diagnostics["context"]["active_run_id"], "run-active")
 
     def test_task_envelope_normalizes_artifacts(self):
         payload = {
