@@ -21,6 +21,7 @@ from cua_state import AuthState, SessionState
 from cua_util import SkillError, emit_error, emit_success, ext_for_mime, script_path
 
 IDEMPOTENT_RETRIES = 2
+SERVER_WAIT_CHUNK_MS = 60000
 TERMINAL_OUTCOMES = ("completed", "failed", "cancelled")
 
 
@@ -201,18 +202,17 @@ def cmd_delegate(args, state, session):
         gateway_url,
         "cua_run_task",
         request,
-        timeout=_tool_timeout(wait_ms),
+        timeout=_tool_timeout(None),
     )
     if desktop_id:
         session.set_last_task_desktop_id(desktop_id)
     if wait_ms and wait_ms > 0:
-        payload = cua_auth.authorized_tool_call(
+        payload = _wait_task_with_budget(
             state,
             access_hub,
             gateway_url,
-            "cua_wait_task",
-            {"task_id": payload.get("task_id"), "timeout_seconds": _wait_seconds(wait_ms)},
-            timeout=_tool_timeout(wait_ms),
+            payload.get("task_id"),
+            wait_ms,
         )
     return _envelope_result(_task_envelope(payload), session)
 
@@ -221,17 +221,12 @@ def cmd_watch(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     invocation_id = _resolve_invocation_id(args, session)
     wait_ms = _wait_ms(args.wait_ms)
-    request = {"task_id": invocation_id}
-    if wait_ms is not None:
-        request["timeout_seconds"] = _wait_seconds(wait_ms)
-    payload = cua_auth.authorized_tool_call(
+    payload = _wait_task_with_budget(
         state,
         access_hub,
         gateway_url,
-        "cua_wait_task",
-        request,
-        timeout=_tool_timeout(wait_ms),
-        retries=IDEMPOTENT_RETRIES,
+        invocation_id,
+        wait_ms,
     )
     return _envelope_result(_task_envelope(payload), session)
 
@@ -260,15 +255,12 @@ def cmd_tasks_watch(args, state, session):
     if not task_ids:
         raise SkillError("VALIDATION_ERROR", "Pass one or more --task-id values, or use --last.")
     wait_ms = _wait_ms(args.wait_ms)
-    request = {"task_ids": task_ids, "include_upstream": args.include_upstream}
-    if wait_ms is not None:
-        request["timeout_seconds"] = _wait_seconds(wait_ms)
-    data = gateway_tool_call(
+    data = _watch_tasks_with_budget(
         gateway_url,
         token,
-        "cua_watch_tasks",
-        request,
-        timeout=_tool_timeout(wait_ms),
+        task_ids,
+        args.include_upstream,
+        wait_ms,
     )
     envelopes = []
     for item in data.get("tasks") or []:
@@ -307,16 +299,15 @@ def cmd_answer(args, state, session):
         gateway_url,
         "cua_resume_task",
         {"task_id": invocation_id, "input": args.answer},
-        timeout=_tool_timeout(wait_ms),
+        timeout=_tool_timeout(None),
     )
     if wait_ms and wait_ms > 0:
-        payload = cua_auth.authorized_tool_call(
+        payload = _wait_task_with_budget(
             state,
             access_hub,
             gateway_url,
-            "cua_wait_task",
-            {"task_id": invocation_id, "timeout_seconds": _wait_seconds(wait_ms)},
-            timeout=_tool_timeout(wait_ms),
+            invocation_id,
+            wait_ms,
         )
     return _envelope_result(_task_envelope(payload), session)
 
@@ -498,12 +489,7 @@ def _task_envelope(payload):
     outcome = _outcome_from_status(status)
     run_id = payload.get("mycua_run_id") or task.get("mycua_run_id") or run.get("id")
     diagnostics = {"trace_id": run_id, "mycua_run_id": run_id, "raw_status": status}
-    upstream_error = upstream.get("error") if isinstance(upstream.get("error"), str) else None
-    upstream_status = upstream.get("upstream_status")
-    if upstream_error:
-        diagnostics["error"] = upstream_error
-    if upstream_status is not None:
-        diagnostics["upstream_status"] = upstream_status
+    diagnostics.update(_error_diagnostics(payload, task, upstream))
     return {
         "invocation_id": task_id,
         "outcome": outcome,
@@ -773,6 +759,97 @@ def _compact(values):
     return out
 
 
+def _wait_task_with_budget(state, access_hub, gateway_url, task_id, wait_ms):
+    remaining_ms = wait_ms
+    while True:
+        request = {"task_id": task_id}
+        chunk_ms = None
+        if remaining_ms is not None:
+            chunk_ms = min(SERVER_WAIT_CHUNK_MS, remaining_ms)
+            request["timeout_seconds"] = _wait_seconds(chunk_ms)
+        payload = cua_auth.authorized_tool_call(
+            state,
+            access_hub,
+            gateway_url,
+            "cua_wait_task",
+            request,
+            timeout=_tool_timeout(chunk_ms),
+            retries=IDEMPOTENT_RETRIES,
+        )
+        if _task_envelope(payload).get("outcome") != "in_progress":
+            return payload
+        if remaining_ms is None or remaining_ms <= chunk_ms:
+            return payload
+        remaining_ms -= chunk_ms
+
+
+def _watch_tasks_with_budget(gateway_url, token, task_ids, include_upstream, wait_ms):
+    remaining_ms = wait_ms
+    while True:
+        request = {"task_ids": task_ids, "include_upstream": include_upstream}
+        chunk_ms = None
+        if remaining_ms is not None:
+            chunk_ms = min(SERVER_WAIT_CHUNK_MS, remaining_ms)
+            request["timeout_seconds"] = _wait_seconds(chunk_ms)
+        data = gateway_tool_call(
+            gateway_url,
+            token,
+            "cua_watch_tasks",
+            request,
+            timeout=_tool_timeout(chunk_ms),
+        )
+        if data.get("pending_count") == 0:
+            return data
+        if remaining_ms is None or remaining_ms <= chunk_ms:
+            return data
+        remaining_ms -= chunk_ms
+
+
+def _error_diagnostics(payload, task, upstream):
+    diagnostics = {}
+    sources = [upstream]
+    for key in ("error", "upstream", "upstream_body"):
+        value = upstream.get(key) if isinstance(upstream, dict) else None
+        if isinstance(value, dict):
+            sources.append(value)
+
+    error_value = upstream.get("error") if isinstance(upstream, dict) else None
+    if isinstance(error_value, str) and error_value.strip():
+        diagnostics["error"] = error_value
+
+    field_aliases = {
+        "code": ("code", "error_code", "errorCode"),
+        "reason": ("reason", "error_description", "failure_reason"),
+        "message": ("message",),
+        "upstream_code": ("upstream_code",),
+        "upstream_status": ("upstream_status",),
+    }
+    for output_key, aliases in field_aliases.items():
+        for source in sources:
+            value = _first_value(source, *aliases)
+            if value is not None:
+                diagnostics[output_key] = value
+                break
+
+    request_id = _first_value(payload, "request_id", "gateway_request_id") or _first_value(task, "request_id")
+    if request_id is not None:
+        diagnostics["request_id"] = request_id
+    context = upstream.get("context") if isinstance(upstream, dict) else None
+    if isinstance(context, dict) and context:
+        diagnostics["context"] = context
+    return diagnostics
+
+
+def _first_value(source, *keys):
+    if not isinstance(source, dict):
+        return None
+    for key in keys:
+        value = source.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def _wait_ms(value):
     if value is None:
         return None
@@ -851,13 +928,13 @@ def build_parser():
     p.add_argument("--objective", required=True, help="The user's original objective.")
     p.add_argument("--desktop-id", help="Optional desktop id/cua uid/instance name.")
     p.add_argument("--auto", action="store_true", help="Choose an idle desktop or allocate one if quota allows.")
-    p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
+    p.add_argument("--wait-ms", type=int, default=None, help="Optional total wait budget in milliseconds; server calls are chunked at 60 seconds.")
     p.set_defaults(action="delegate", handler=cmd_delegate)
 
     p = sub.add_parser("watch", help="Wait for or check an invocation.")
     p.add_argument("--invocation-id", help="Invocation id returned by delegate.")
     p.add_argument("--last", action="store_true", help="Use the latest saved invocation id.")
-    p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
+    p.add_argument("--wait-ms", type=int, default=None, help="Optional total wait budget in milliseconds; server calls are chunked at 60 seconds.")
     p.set_defaults(action="watch", handler=cmd_watch)
 
     tasks = sub.add_parser("tasks", help="List or watch multiple delegated CUA tasks.")
@@ -871,7 +948,7 @@ def build_parser():
     p = tasks_sub.add_parser("watch", help="Refresh or wait on several CUA tasks.")
     p.add_argument("--task-id", action="append", help="Task/invocation id returned by delegate. Repeat for multiple tasks.")
     p.add_argument("--last", action="store_true", help="Also include the latest saved invocation id.")
-    p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
+    p.add_argument("--wait-ms", type=int, default=None, help="Optional total wait budget in milliseconds; server calls are chunked at 60 seconds.")
     p.add_argument("--include-upstream", action="store_true", help="Include raw gateway/my-cua status for non-terminal tasks.")
     p.set_defaults(action="tasks.watch", handler=cmd_tasks_watch)
 
@@ -879,7 +956,7 @@ def build_parser():
     p.add_argument("--invocation-id", help="Invocation id returned by delegate.")
     p.add_argument("--last", action="store_true", help="Use the latest saved invocation id.")
     p.add_argument("--answer", required=True, help="The user's answer to input_request.question.")
-    p.add_argument("--wait-ms", type=int, default=None, help="Optional wait window in milliseconds.")
+    p.add_argument("--wait-ms", type=int, default=None, help="Optional total wait budget in milliseconds; server calls are chunked at 60 seconds.")
     p.set_defaults(action="answer", handler=cmd_answer)
 
     p = sub.add_parser("cancel", help="Cancel an invocation when the user asks to stop.")

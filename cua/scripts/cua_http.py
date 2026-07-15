@@ -67,9 +67,19 @@ def _tool_result(envelope):
         raise SkillError("INTERNAL", "CUA Skill Gateway returned a non-object response.")
     if envelope.get("ok") is True:
         result = envelope.get("result")
-        return result if isinstance(result, dict) else {}
+        if not isinstance(result, dict):
+            return {}
+        result = dict(result)
+        if envelope.get("request_id") and not result.get("request_id"):
+            result["request_id"] = envelope.get("request_id")
+        return result
     error = envelope.get("error") if isinstance(envelope.get("error"), dict) else {}
-    _raise_mapped_error(error.get("code"), error.get("upstream_status"), error.get("message"))
+    _raise_mapped_error(
+        error.get("code"),
+        error.get("upstream_status"),
+        error.get("message"),
+        **_error_details(envelope, error),
+    )
 
 
 def _raise_http_error(status, body):
@@ -83,42 +93,83 @@ def _raise_http_error(status, body):
         error = payload.get("error")
         if isinstance(error, dict):
             message = error.get("message") or message
-            _raise_mapped_error(error.get("code"), status, message)
-        _raise_mapped_error(payload.get("code") or payload.get("error"), status, payload.get("message") or message)
-    _raise_mapped_error(None, status, message)
+            _raise_mapped_error(
+                error.get("code"),
+                error.get("upstream_status") or status,
+                message,
+                **_error_details(payload, error),
+            )
+        _raise_mapped_error(
+            payload.get("code") or payload.get("error"),
+            status,
+            payload.get("message") or message,
+            **_error_details(payload, {}),
+        )
+    _raise_mapped_error(None, status, message, upstream_status=status)
 
 
-def _raise_mapped_error(code, status, message):
+def _raise_mapped_error(code, status, message, **details):
     stable = str(code or "").strip()
     msg = message or "CUA Skill Gateway request failed."
+    if status is not None:
+        details.setdefault("upstream_status", status)
     if stable in ("Unauthorized", "AUTH_REQUIRED", "TOKEN_EXPIRED", "REFRESH_FAILED"):
-        raise SkillError("AUTH_REQUIRED", msg, retry_command=login_retry_command())
+        raise SkillError("AUTH_REQUIRED", msg, retry_command=login_retry_command(), **details)
     if stable in ("TaskNotOwned", "TaskNotStarted"):
-        raise SkillError("INVOCATION_NOT_FOUND", msg)
+        raise SkillError("INVOCATION_NOT_FOUND", msg, **details)
     if stable in ("DesktopNotOwned",):
-        raise SkillError("FORBIDDEN", msg)
+        raise SkillError("FORBIDDEN", msg, **details)
     if stable in ("DesktopNotReady", "no_active_cua_allocation"):
-        raise SkillError("DESKTOP_NOT_BOUND", msg)
+        raise SkillError("DESKTOP_NOT_BOUND", msg, **details)
+    if stable in ("DESKTOP_BUSY", "active_run_conflict"):
+        details.setdefault("upstream_code", stable)
+        raise SkillError("DESKTOP_BUSY", msg, **details)
     if stable in ("AccessHubUnavailable", "MyCUAUnavailable"):
-        raise SkillError("CUA_BACKEND_UNAVAILABLE", msg)
+        raise SkillError("CUA_BACKEND_UNAVAILABLE", msg, **details)
+    if stable in ("GATEWAY_5XX", "CUA_BACKEND_UNAVAILABLE"):
+        raise SkillError("CUA_BACKEND_UNAVAILABLE", msg, **details)
+    if stable in ("MODEL_TIMEOUT", "model_timeout", "provider_timeout", "llm_timeout"):
+        details.setdefault("upstream_code", stable)
+        raise SkillError("MODEL_TIMEOUT", msg, **details)
+    if stable in ("DESKTOP_UNHEALTHY", "desktop_unhealthy", "guest_unhealthy"):
+        details.setdefault("upstream_code", stable)
+        raise SkillError("DESKTOP_UNHEALTHY", msg, **details)
+    if stable in ("SESSION_CLEANUP", "session_cleanup", "session_cleanup_failed"):
+        details.setdefault("upstream_code", stable)
+        raise SkillError("SESSION_CLEANUP", msg, **details)
     if stable:
-        raise SkillError(stable, msg)
+        raise SkillError(stable, msg, **details)
 
     if status in (401, "401"):
-        raise SkillError("AUTH_REQUIRED", msg or "Login required for CUA Skill.", retry_command=login_retry_command())
+        raise SkillError("AUTH_REQUIRED", msg or "Login required for CUA Skill.", retry_command=login_retry_command(), **details)
     if status in (403, "403"):
-        raise SkillError("FORBIDDEN", msg or "CUA Skill credential is forbidden.")
+        raise SkillError("FORBIDDEN", msg or "CUA Skill credential is forbidden.", **details)
     if status in (404, "404"):
-        raise SkillError("INVOCATION_NOT_FOUND", msg or "CUA invocation was not found.")
+        raise SkillError("INVOCATION_NOT_FOUND", msg or "CUA invocation was not found.", **details)
     if status in (409, "409"):
-        raise SkillError("DESKTOP_NOT_BOUND", msg)
+        raise SkillError("CONFLICT", msg, **details)
     if status in (429, "429"):
-        raise SkillError("RATE_LIMITED", msg or "CUA Skill Gateway rate limited the request.")
+        raise SkillError("RATE_LIMITED", msg or "CUA Skill Gateway rate limited the request.", **details)
     if status in (502, 503, "502", "503"):
-        raise SkillError("CUA_BACKEND_UNAVAILABLE", msg or "CUA backend is unavailable.")
+        raise SkillError("CUA_BACKEND_UNAVAILABLE", msg or "CUA backend is unavailable.", **details)
     if status in (504, "504"):
-        raise SkillError("GATEWAY_TIMEOUT", msg or "CUA Skill Gateway timed out; the task may still be running.")
-    raise SkillError("INTERNAL", msg or "CUA Skill Gateway returned an unexpected error.")
+        raise SkillError("GATEWAY_TIMEOUT", msg or "CUA Skill Gateway timed out; the task may still be running.", **details)
+    raise SkillError("INTERNAL", msg or "CUA Skill Gateway returned an unexpected error.", **details)
+
+
+def _error_details(envelope, error):
+    details = {}
+    request_id = error.get("request_id") or envelope.get("request_id")
+    if request_id:
+        details["request_id"] = request_id
+    for key in ("reason", "retryable", "upstream_code", "upstream_status"):
+        value = error.get(key)
+        if value is not None and value != "":
+            details[key] = value
+    context = error.get("context")
+    if isinstance(context, dict) and context:
+        details["context"] = context
+    return details
 
 
 def _decode_json(raw):
