@@ -67,7 +67,7 @@ class CuaCliTests(unittest.TestCase):
             ) as call,
         ):
             result = cua.cmd_delegate(
-                Namespace(objective="do work", desktop_id="vm-2", auto=False, wait_ms=None),
+                Namespace(objective="do work", desktop_id="vm-2", session_id=None, auto=False, wait_ms=None),
                 state=object(),
                 session=session,
             )
@@ -77,6 +77,66 @@ class CuaCliTests(unittest.TestCase):
         call.assert_called_once()
         self.assertEqual(call.call_args.args[3], "cua_run_task")
         self.assertEqual(call.call_args.args[4], {"input": "do work", "desktop_id": "vm-2"})
+
+    def test_delegate_passes_existing_session_id(self):
+        session = self.Session()
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(
+                cua.cua_auth,
+                "authorized_tool_call",
+                return_value={
+                    "task_id": "task-2",
+                    "mycua_session_id": "sess-1",
+                    "mycua_run_id": "run-2",
+                    "status": "running",
+                    "upstream": {},
+                },
+            ) as call,
+        ):
+            result = cua.cmd_delegate(
+                Namespace(
+                    objective="continue the work",
+                    desktop_id="vm-2",
+                    session_id="sess-1",
+                    auto=False,
+                    wait_ms=None,
+                ),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(
+            call.call_args.args[4],
+            {"input": "continue the work", "session_id": "sess-1", "desktop_id": "vm-2"},
+        )
+        self.assertEqual(result["data"]["session_id"], "sess-1")
+        self.assertEqual(result["data"]["diagnostics"]["mycua_session_id"], "sess-1")
+
+    def test_delegate_parser_accepts_session_id(self):
+        args = cua.build_parser().parse_args(
+            ["delegate", "--objective", "continue", "--session-id", "sess-1"]
+        )
+
+        self.assertEqual(args.session_id, "sess-1")
+
+    def test_delegate_rejects_auto_with_existing_session(self):
+        with mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")):
+            with self.assertRaises(cua.SkillError) as raised:
+                cua.cmd_delegate(
+                    Namespace(
+                        objective="continue",
+                        desktop_id=None,
+                        session_id="sess-1",
+                        auto=True,
+                        wait_ms=None,
+                    ),
+                    state=object(),
+                    session=self.Session(),
+                )
+
+        self.assertEqual(raised.exception.code, "VALIDATION_ERROR")
+        self.assertIn("--session-id cannot be combined with --auto", raised.exception.message)
 
     def test_auto_delegate_selects_idle_desktop(self):
         session = self.Session()
@@ -101,7 +161,7 @@ class CuaCliTests(unittest.TestCase):
             ) as call,
         ):
             result = cua.cmd_delegate(
-                Namespace(objective="do work", desktop_id=None, auto=True, wait_ms=None),
+                Namespace(objective="do work", desktop_id=None, session_id=None, auto=True, wait_ms=None),
                 state=object(),
                 session=session,
             )
@@ -142,7 +202,12 @@ class CuaCliTests(unittest.TestCase):
                 return_value={
                     "tasks": [
                         {
-                            "task": {"task_id": "task-1", "status": "succeeded", "mycua_run_id": "run-1"},
+                            "task": {
+                                "task_id": "task-1",
+                                "status": "succeeded",
+                                "mycua_session_id": "sess-1",
+                                "mycua_run_id": "run-1",
+                            },
                             "upstream": {"status": "succeeded", "text": "done 1"},
                         },
                         {
@@ -173,6 +238,7 @@ class CuaCliTests(unittest.TestCase):
         self.assertEqual(result["data"]["terminal_count"], 1)
         self.assertEqual(result["data"]["settled_count"], 1)
         self.assertEqual(result["data"]["tasks"][0]["outcome"], "completed")
+        self.assertEqual(result["data"]["tasks"][0]["session_id"], "sess-1")
         self.assertEqual(result["data"]["tasks"][0]["result"]["text"], "done 1")
         self.assertEqual(result["data"]["tasks"][1]["outcome"], "in_progress")
         self.assertEqual(session.last, "task-2")
@@ -253,6 +319,20 @@ class CuaCliTests(unittest.TestCase):
 
         self.assertEqual(envelope["outcome"], "completed")
         self.assertEqual(envelope["result"]["text"], "finished answer")
+
+    def test_task_envelope_exposes_mycua_session_id(self):
+        envelope = cua._task_envelope(
+            {
+                "task_id": "cua_task_1",
+                "mycua_session_id": "sess-1",
+                "mycua_run_id": "run-1",
+                "status": "running",
+                "upstream": {},
+            }
+        )
+
+        self.assertEqual(envelope["session_id"], "sess-1")
+        self.assertEqual(envelope["diagnostics"]["mycua_session_id"], "sess-1")
 
     def test_task_envelope_includes_upstream_error_diagnostics(self):
         payload = {

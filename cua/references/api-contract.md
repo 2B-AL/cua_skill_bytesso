@@ -63,9 +63,21 @@ When multiple desktops exist, gateway tools accept `desktop_id` where relevant.
 `task_id` remains globally sufficient for `watch`, `answer`, `cancel`, and
 result lookup; those commands do not need a desktop selector.
 
-One `cua_run_task` creates one CUA task. To run independent work in parallel,
-call `cua_run_task` once per subtask and collect results with
-`cua_watch_tasks`.
+One `cua_run_task` creates one CUA task and one new run. When `session_id` is
+omitted, the gateway first creates a new my-cua session. When `session_id` is
+provided, the new run is created in that existing session so it can continue
+with the session's prior context. The session belongs to its original desktop;
+callers with multiple desktops should send that same `desktop_id` together with
+`session_id`.
+
+The CLI exposes the gateway response field `mycua_session_id` as
+`data.session_id` for single-task commands and `data.tasks[].session_id` for
+`tasks watch`. It also keeps the value in the corresponding
+`diagnostics.mycua_session_id`. An invocation/task id and a session id are
+different identifiers and are not interchangeable.
+
+To run independent work in parallel, omit `session_id`, call `cua_run_task`
+once per subtask, and collect results with `cua_watch_tasks`.
 
 `cua_list_desktops` may include scheduling hints on each desktop:
 
