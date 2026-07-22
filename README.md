@@ -54,6 +54,7 @@ chat messages.
 
 ```bash
 python3 <skill_dir>/scripts/cua.py ping
+python3 <skill_dir>/scripts/cua.py desktops reboot <desktop_id>
 python3 <skill_dir>/scripts/cua.py delegate --objective "<the user's request>"
 python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --session-id <session_id> --objective "<follow-up request>"
 python3 <skill_dir>/scripts/cua.py watch --last

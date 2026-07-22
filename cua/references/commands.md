@@ -34,12 +34,22 @@ python3 <skill_dir>/scripts/cua.py desktops allocate
 python3 <skill_dir>/scripts/cua.py desktops allocate --label "qa-run"
 python3 <skill_dir>/scripts/cua.py desktops allocate --spec-code s80 --label "qa-run"
 python3 <skill_dir>/scripts/cua.py desktops use <desktop_id>
+python3 <skill_dir>/scripts/cua.py desktops reboot <desktop_id>
+python3 <skill_dir>/scripts/cua.py desktops operation <operation_id>
 ```
 
 `desktops list` returns the caller's allocated desktops and quota. `desktops
 allocate` requests one additional CUA desktop and is rejected if the caller is
 over quota. `desktops use` stores a local default desktop for later `observe`
 and `delegate` calls.
+
+`desktops reboot` does not ask for confirmation. It waits up to 10 minutes by
+default for the VM and required guest components to become ready. Override the
+total wait budget with `--wait-ms`. A successful command means it is safe to
+submit a new task. If the operation remains `running`, use the structured
+error's `next.command` to run `desktops operation`; do not submit a task until
+the operation succeeds. A failed operation must be reported instead of retried
+as a task.
 
 ## Tasks
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "CUA ByteSSO"
-  short_description: "Delegate or continue CUA tasks through ByteSSO"
-  default_prompt: "Use $cua to start a new CUA task or continue an existing session context through ByteSSO Access Hub."
+  short_description: "Delegate tasks and reboot CUA desktops via ByteSSO"
+  default_prompt: "Use $cua to delegate work, continue an existing session, or reboot a CUA desktop through ByteSSO Access Hub."

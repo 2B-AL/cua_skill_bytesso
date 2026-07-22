@@ -46,6 +46,20 @@ class CuaHttpTests(unittest.TestCase):
 
         self.assertEqual(result["request_id"], "req-1")
 
+    def test_operation_not_owned_maps_to_forbidden(self):
+        with self.assertRaises(SkillError) as ctx:
+            cua_http._tool_result(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "OperationNotOwned",
+                        "message": "operation is not owned by caller",
+                    },
+                }
+            )
+
+        self.assertEqual(ctx.exception.code, "FORBIDDEN")
+
 
 if __name__ == "__main__":
     unittest.main()

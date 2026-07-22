@@ -13,6 +13,8 @@ import math
 import os
 import sys
 import tempfile
+import time
+import uuid
 from pathlib import Path
 
 import cua_auth
@@ -23,6 +25,8 @@ from cua_util import SkillError, emit_error, emit_success, ext_for_mime, script_
 IDEMPOTENT_RETRIES = 2
 SERVER_WAIT_CHUNK_MS = 60000
 TERMINAL_OUTCOMES = ("completed", "failed", "cancelled")
+DESKTOP_REBOOT_DEFAULT_WAIT_MS = 600000
+DESKTOP_OPERATION_POLL_INTERVAL_SEC = 2
 
 
 def main(argv=None):
@@ -187,6 +191,121 @@ def cmd_desktops_use(args, state, session):
     desktop_id = selected.get("desktop_id")
     session.set_default_desktop_id(desktop_id)
     return {"data": {"desktop": selected, "default_desktop_id": desktop_id}}
+
+
+def cmd_desktops_reboot(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    desktop_id = args.desktop_id or session.default_desktop_id
+    request = {"idempotency_key": f"cua-skill-reboot-{uuid.uuid4().hex}"}
+    if desktop_id:
+        request["desktop_id"] = desktop_id
+    data = cua_auth.authorized_tool_call(
+        state,
+        access_hub,
+        gateway_url,
+        "cua_reboot_desktop",
+        request,
+        timeout=30,
+        retries=IDEMPOTENT_RETRIES,
+    )
+    operation = _desktop_operation(data)
+    operation = _wait_desktop_operation(
+        state,
+        access_hub,
+        gateway_url,
+        operation,
+        _wait_ms(args.wait_ms),
+    )
+    _require_successful_desktop_reboot(operation)
+    return {
+        "data": {
+            "desktop": data.get("desktop"),
+            "operation": operation,
+        },
+        "next": {
+            "agent_hint": "Desktop reboot and readiness checks succeeded. It is now safe to submit a new task.",
+        },
+    }
+
+
+def cmd_desktops_operation(args, state, session):
+    access_hub, gateway_url = resolve_urls(args, state)
+    operation = _get_desktop_operation(
+        state,
+        access_hub,
+        gateway_url,
+        args.operation_id,
+    )
+    operation = _wait_desktop_operation(
+        state,
+        access_hub,
+        gateway_url,
+        operation,
+        _wait_ms(args.wait_ms),
+    )
+    _require_successful_desktop_reboot(operation)
+    return {
+        "data": {"operation": operation},
+        "next": {
+            "agent_hint": "Desktop reboot and readiness checks succeeded. It is now safe to submit a new task.",
+        },
+    }
+
+
+def _desktop_operation(data):
+    operation = data.get("operation") if isinstance(data, dict) else None
+    if not isinstance(operation, dict) or not operation.get("operation_id"):
+        raise SkillError("INTERNAL", "CUA Skill Gateway returned a desktop operation without an operation_id.")
+    return operation
+
+
+def _get_desktop_operation(state, access_hub, gateway_url, operation_id):
+    data = cua_auth.authorized_tool_call(
+        state,
+        access_hub,
+        gateway_url,
+        "cua_get_desktop_operation",
+        {"operation_id": operation_id},
+        timeout=30,
+        retries=IDEMPOTENT_RETRIES,
+    )
+    return _desktop_operation(data)
+
+
+def _wait_desktop_operation(state, access_hub, gateway_url, operation, wait_ms):
+    deadline = time.monotonic() + (wait_ms / 1000)
+    while str(operation.get("status") or "").lower() == "running":
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return operation
+        time.sleep(min(DESKTOP_OPERATION_POLL_INTERVAL_SEC, remaining))
+        operation = _get_desktop_operation(
+            state,
+            access_hub,
+            gateway_url,
+            operation["operation_id"],
+        )
+    return operation
+
+
+def _require_successful_desktop_reboot(operation):
+    status = str(operation.get("status") or "").lower()
+    if status == "succeeded":
+        return
+    operation_id = operation.get("operation_id")
+    if status == "running":
+        raise SkillError(
+            "DESKTOP_REBOOT_IN_PROGRESS",
+            "Desktop reboot is still running. Check the operation before submitting a new task.",
+            operation=operation,
+            retry_command=f"python3 {script_path()} desktops operation {operation_id}",
+        )
+    error = operation.get("error") if isinstance(operation.get("error"), dict) else {}
+    raise SkillError(
+        str(error.get("code") or "DESKTOP_REBOOT_FAILED"),
+        error.get("message") or "Desktop reboot or readiness checks failed.",
+        operation=operation,
+    )
 
 
 def cmd_delegate(args, state, session):
@@ -929,7 +1048,7 @@ def build_parser():
     p = sub.add_parser("ping", help="Read-only connectivity check.")
     p.set_defaults(action="ping", handler=cmd_ping)
 
-    desktops = sub.add_parser("desktops", help="List or allocate CUA desktops.")
+    desktops = sub.add_parser("desktops", help="List, allocate, select, or reboot CUA desktops.")
     desktops_sub = desktops.add_subparsers(dest="desktops_command")
 
     p = desktops_sub.add_parser("list", help="List allocated CUA desktops and quota.")
@@ -943,6 +1062,26 @@ def build_parser():
     p = desktops_sub.add_parser("use", help="Set the local default desktop for observe and delegate.")
     p.add_argument("desktop_id", help="Desktop id, CUA uid, or instance name.")
     p.set_defaults(action="desktops.use", handler=cmd_desktops_use)
+
+    p = desktops_sub.add_parser("reboot", help="Reboot a desktop and wait for readiness checks.")
+    p.add_argument("desktop_id", nargs="?", help="Optional desktop id; defaults to the selected desktop.")
+    p.add_argument(
+        "--wait-ms",
+        type=int,
+        default=DESKTOP_REBOOT_DEFAULT_WAIT_MS,
+        help="Total wait budget in milliseconds (default: 600000).",
+    )
+    p.set_defaults(action="desktops.reboot", handler=cmd_desktops_reboot)
+
+    p = desktops_sub.add_parser("operation", help="Wait for a desktop reboot operation.")
+    p.add_argument("operation_id", help="Operation id returned by desktops reboot.")
+    p.add_argument(
+        "--wait-ms",
+        type=int,
+        default=DESKTOP_REBOOT_DEFAULT_WAIT_MS,
+        help="Total wait budget in milliseconds (default: 600000).",
+    )
+    p.set_defaults(action="desktops.operation", handler=cmd_desktops_operation)
 
     p = sub.add_parser("delegate", help="Delegate a user objective to a new or existing CUA session.")
     p.add_argument("--objective", required=True, help="The user's original objective.")
