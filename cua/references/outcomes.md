@@ -1,6 +1,9 @@
 # Outcomes
 
 `delegate`, `watch`, and `answer` return an invocation envelope under `data`.
+When available, `data.session_id` identifies the my-cua session that owns the
+task context. Pass it to a later `delegate --session-id` call only when the new
+task should continue in that context; omit it for a new session.
 `tasks watch` returns the same envelope shape for each entry under `data.tasks`.
 
 ```json

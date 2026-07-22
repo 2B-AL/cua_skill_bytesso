@@ -84,13 +84,25 @@ python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
 python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --objective "<user objective>"
 python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<user objective>"
 python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>" --wait-ms 30000
+python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --session-id <session_id> --objective "<follow-up objective>"
 ```
 
 Pass the user's original objective directly. By default `delegate` starts the
-task and returns quickly with an invocation id. `--wait-ms` is a total
-client-side wait budget; the CLI polls in server-sized chunks of at most 60
-seconds and does not cancel the task when the budget expires. `--auto` selects
-an idle desktop, or allocates a new one when quota allows.
+task in a new my-cua session and returns quickly with an invocation id and
+`data.session_id`. Omit `--session-id` to retain this behavior.
+
+Pass a previously returned `data.session_id` when the new objective is a
+follow-up that should continue in the existing my-cua conversation/task
+context. This creates a new task and run inside that session; it does not resume
+the previous run. In a multi-desktop environment, also pass the original
+`--desktop-id` because sessions belong to the desktop where they were created.
+Do not use an invocation/task id as a session id. Do not combine `--auto` with
+`--session-id`.
+
+`--wait-ms` is a total client-side wait budget; the CLI polls in server-sized
+chunks of at most 60 seconds and does not cancel the task when the budget
+expires. `--auto` selects an idle desktop, or allocates a new one when quota
+allows.
 
 ## Watch
 

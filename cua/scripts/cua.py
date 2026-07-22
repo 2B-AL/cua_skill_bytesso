@@ -193,6 +193,14 @@ def cmd_delegate(args, state, session):
     access_hub, gateway_url = resolve_urls(args, state)
     wait_ms = _wait_ms(args.wait_ms)
     request = {"input": args.objective}
+    session_id = str(getattr(args, "session_id", None) or "").strip()
+    if session_id and args.auto:
+        raise SkillError(
+            "VALIDATION_ERROR",
+            "--session-id cannot be combined with --auto; pass the session's original --desktop-id instead.",
+        )
+    if session_id:
+        request["session_id"] = session_id
     desktop_id = _resolve_delegate_desktop(args, state, session, access_hub, gateway_url)
     if desktop_id:
         request["desktop_id"] = desktop_id
@@ -487,11 +495,23 @@ def _task_envelope(payload):
     task_id = payload.get("task_id") or task.get("task_id")
     status = payload.get("status") or task.get("status") or run.get("status") or upstream.get("status") or "running"
     outcome = _outcome_from_status(status)
+    session_id = (
+        payload.get("mycua_session_id")
+        or task.get("mycua_session_id")
+        or run.get("session_id")
+        or run.get("sessionId")
+    )
     run_id = payload.get("mycua_run_id") or task.get("mycua_run_id") or run.get("id")
-    diagnostics = {"trace_id": run_id, "mycua_run_id": run_id, "raw_status": status}
+    diagnostics = {
+        "trace_id": run_id,
+        "mycua_session_id": session_id,
+        "mycua_run_id": run_id,
+        "raw_status": status,
+    }
     diagnostics.update(_error_diagnostics(payload, task, upstream))
     return {
         "invocation_id": task_id,
+        "session_id": session_id,
         "outcome": outcome,
         "result": {
             "text": _result_text(upstream) if outcome == "completed" else None,
@@ -924,9 +944,13 @@ def build_parser():
     p.add_argument("desktop_id", help="Desktop id, CUA uid, or instance name.")
     p.set_defaults(action="desktops.use", handler=cmd_desktops_use)
 
-    p = sub.add_parser("delegate", help="Delegate a user objective to CUA.")
+    p = sub.add_parser("delegate", help="Delegate a user objective to a new or existing CUA session.")
     p.add_argument("--objective", required=True, help="The user's original objective.")
     p.add_argument("--desktop-id", help="Optional desktop id/cua uid/instance name.")
+    p.add_argument(
+        "--session-id",
+        help="Optional existing my-cua session id. Omit it to create a new session.",
+    )
     p.add_argument("--auto", action="store_true", help="Choose an idle desktop or allocate one if quota allows.")
     p.add_argument("--wait-ms", type=int, default=None, help="Optional total wait budget in milliseconds; server calls are chunked at 60 seconds.")
     p.set_defaults(action="delegate", handler=cmd_delegate)

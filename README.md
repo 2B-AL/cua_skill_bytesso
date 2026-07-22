@@ -55,8 +55,15 @@ chat messages.
 ```bash
 python3 <skill_dir>/scripts/cua.py ping
 python3 <skill_dir>/scripts/cua.py delegate --objective "<the user's request>"
+python3 <skill_dir>/scripts/cua.py delegate --desktop-id <desktop_id> --session-id <session_id> --objective "<follow-up request>"
 python3 <skill_dir>/scripts/cua.py watch --last
 ```
+
+By default, every `delegate` call creates a new my-cua session. Pass the
+`session_id` returned by an earlier `delegate` or `watch` response only when the
+new task should continue in that existing session context. In a multi-desktop
+environment, also pass the original `desktop_id` because a session belongs to
+the desktop on which it was created.
 
 Override endpoints without editing the repo:
 

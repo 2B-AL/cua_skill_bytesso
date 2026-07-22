@@ -1,6 +1,6 @@
 ---
 name: cua
-description: Use when the user wants to delegate one or more broad computer-use tasks to CUA through the ByteSSO Access Hub bare-metal environment, including web browsing, app use, file handling, multi-step desktop operation, allocating multiple CUA desktops, running independent tasks in parallel, progress watching, answering CUA questions, cancellation, or observing the cloud desktop state.
+description: Use when the user wants to delegate one or more broad computer-use tasks to CUA through the ByteSSO Access Hub bare-metal environment, including web browsing, app use, file handling, multi-step desktop operation, starting work in a new CUA session, continuing work in an existing session context, allocating multiple CUA desktops, running independent tasks in parallel, progress watching, answering CUA questions, cancellation, or observing the cloud desktop state.
 ---
 
 # CUA
@@ -82,9 +82,8 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
 
 6. For real work, call `delegate` with the user's original objective or one
    independent subtask. If a specific desktop was selected, pass `--desktop-id`.
-   By default this starts a CUA task and returns quickly; do not block the chat
-   waiting for completion unless the user explicitly asks you to wait for the
-   result:
+   Omitting `--session-id` is the default and creates a new my-cua session. Use
+   this default for new, independent work:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py delegate --objective "<user objective>"
@@ -92,10 +91,34 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    python3 <skill_dir>/scripts/cua.py delegate --auto --objective "<user objective>"
    ```
 
+   To continue work in an existing my-cua context, take `data.session_id` from
+   an earlier `delegate` or `watch` response (or
+   `data.tasks[].session_id` from `tasks watch`) and pass it to the next
+   `delegate` call:
+
+   ```bash
+   python3 <skill_dir>/scripts/cua.py delegate \
+     --desktop-id <original_desktop_id> \
+     --session-id <data.session_id> \
+     --objective "<follow-up objective>"
+   ```
+
+   A session id preserves the existing my-cua conversation/task context; it
+   does not resume or replace the earlier run. Each `delegate` call still
+   creates a new task and run. A session is bound to its original desktop, so
+   pass the same `desktop_id` when multiple desktops are allocated. Never use
+   an invocation/task id as a session id, and never invent one. If no valid
+   prior session id is available, omit `--session-id` and create a new session.
+
+   By default `delegate` starts a CUA task and returns quickly; do not block the
+   chat waiting for completion unless the user explicitly asks you to wait for
+   the result.
+
    `--auto` chooses an idle desktop or allocates one if quota allows. Do not use
-   `--auto` if the user explicitly named a desktop. For deliberate parallel
-   execution, prefer choosing concrete idle `desktop_id` values from
-   `desktops list` so each subtask is bound to a different CUA instance.
+   `--auto` with `--session-id` or if the user explicitly named a desktop. For
+   deliberate parallel execution, prefer choosing concrete idle `desktop_id`
+   values from `desktops list` so each subtask is bound to a different CUA
+   instance.
 
 7. Track running tasks with task commands when multiple CUA tasks may be active:
 
@@ -152,6 +175,9 @@ read [auth.md](references/auth.md). For output states, read
   work. For independent parallel work, split only along explicit user goals and
   pass each CUA a self-contained subtask without changing requirements or adding
   hidden work.
+- Omit `--session-id` for new work. Reuse a returned `data.session_id` only when
+  the user wants a follow-up task to continue in that existing my-cua context,
+  and keep it on the original desktop.
 - Treat progress summaries and screenshots as status signals only.
 - Use `watch` or `tasks watch` to decide task completion; do not use `observe`
   for completion.
