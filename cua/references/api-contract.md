@@ -20,6 +20,8 @@ Legacy `cua_mcp_...` bearer keys are still accepted for compatibility.
 | `desktops list` | `cua_list_desktops` |
 | `desktops allocate` | `cua_allocate_desktop` |
 | `desktops use` | `cua_list_desktops` plus local state update |
+| `desktops reboot` | `cua_reboot_desktop`, then `cua_get_desktop_operation` until terminal |
+| `desktops operation` | `cua_get_desktop_operation` until terminal |
 | `delegate` | `cua_run_task` |
 | `tasks list` | `cua_list_tasks` |
 | `tasks watch` | `cua_watch_tasks` |
@@ -93,3 +95,10 @@ once per subtask, and collect results with `cua_watch_tasks`.
 
 The CLI uses these hints for `delegate --auto`; they are advisory and the
 gateway remains authoritative when creating the task.
+
+`cua_reboot_desktop` does not require a confirmation field. It returns an
+asynchronous operation with public status `running`, `succeeded`, or `failed`.
+The CLI polls `cua_get_desktop_operation` and returns success only after the
+operation reaches `succeeded`, which means the virtual machine and required
+guest components passed readiness checks. The gateway also rejects new task
+creation while the latest reboot has not succeeded.

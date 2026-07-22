@@ -56,6 +56,92 @@ class CuaCliTests(unittest.TestCase):
             timeout=60,
         )
 
+    def test_desktops_reboot_waits_for_success_without_confirmation(self):
+        session = self.Session()
+        responses = [
+            {
+                "desktop": {"desktop_id": "vm-2"},
+                "operation": {"operation_id": "op-1", "desktop_id": "vm-2", "status": "running"},
+            },
+            {"operation": {"operation_id": "op-1", "desktop_id": "vm-2", "status": "succeeded"}},
+        ]
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.uuid, "uuid4", return_value=mock.Mock(hex="request-1")),
+            mock.patch.object(cua.time, "sleep"),
+            mock.patch.object(cua.cua_auth, "authorized_tool_call", side_effect=responses) as call,
+        ):
+            result = cua.cmd_desktops_reboot(
+                Namespace(desktop_id="vm-2", wait_ms=600000),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(result["data"]["operation"]["status"], "succeeded")
+        self.assertEqual(call.call_args_list[0].args[3], "cua_reboot_desktop")
+        self.assertEqual(
+            call.call_args_list[0].args[4],
+            {"desktop_id": "vm-2", "idempotency_key": "cua-skill-reboot-request-1"},
+        )
+        self.assertNotIn("confirm", call.call_args_list[0].args[4])
+        self.assertEqual(call.call_args_list[1].args[3], "cua_get_desktop_operation")
+        self.assertEqual(call.call_args_list[1].args[4], {"operation_id": "op-1"})
+
+    def test_desktops_reboot_timeout_blocks_new_tasks(self):
+        session = self.Session()
+        session.default_desktop_id = "vm-default"
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(cua.uuid, "uuid4", return_value=mock.Mock(hex="request-2")),
+            mock.patch.object(
+                cua.cua_auth,
+                "authorized_tool_call",
+                return_value={"operation": {"operation_id": "op-2", "status": "running"}},
+            ) as call,
+        ):
+            with self.assertRaises(cua.SkillError) as raised:
+                cua.cmd_desktops_reboot(
+                    Namespace(desktop_id=None, wait_ms=0),
+                    state=object(),
+                    session=session,
+                )
+
+        self.assertEqual(raised.exception.code, "DESKTOP_REBOOT_IN_PROGRESS")
+        self.assertIn("desktops operation op-2", raised.exception.extra["retry_command"])
+        self.assertEqual(call.call_args.args[4]["desktop_id"], "vm-default")
+
+    def test_desktops_operation_surfaces_reboot_failure(self):
+        with (
+            mock.patch.object(cua, "resolve_urls", return_value=("http://hub", "http://gateway")),
+            mock.patch.object(
+                cua.cua_auth,
+                "authorized_tool_call",
+                return_value={
+                    "operation": {
+                        "operation_id": "op-3",
+                        "status": "failed",
+                        "error": {"code": "UIANotReady", "message": "desktop UI automation did not become ready"},
+                    }
+                },
+            ),
+        ):
+            with self.assertRaises(cua.SkillError) as raised:
+                cua.cmd_desktops_operation(
+                    Namespace(operation_id="op-3", wait_ms=600000),
+                    state=object(),
+                    session=self.Session(),
+                )
+
+        self.assertEqual(raised.exception.code, "UIANotReady")
+        self.assertEqual(raised.exception.extra["operation"]["status"], "failed")
+
+    def test_desktops_reboot_parser_has_no_confirmation(self):
+        args = cua.build_parser().parse_args(["desktops", "reboot", "vm-2"])
+
+        self.assertEqual(args.desktop_id, "vm-2")
+        self.assertEqual(args.wait_ms, 600000)
+        self.assertFalse(hasattr(args, "confirm"))
+
     def test_delegate_passes_desktop_id(self):
         session = self.Session()
         with (

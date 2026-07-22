@@ -85,6 +85,12 @@ def _next_for_error(body):
             "agent_hint": "The selected desktop already has an active run. Do not retry blindly. "
             "Use tasks list/watch to recover the active task, or select a different idle desktop.",
         }
+    if code == "DESKTOP_REBOOT_IN_PROGRESS" and retry:
+        return {
+            "command": retry,
+            "agent_hint": "The reboot is still running. Check this operation and do not submit a new task "
+            "until it succeeds.",
+        }
     if code in RETRYABLE_ERROR_CODES:
         return {
             "agent_hint": "Transient gateway/backend timeout — this is not a real failure. "

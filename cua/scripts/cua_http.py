@@ -117,7 +117,7 @@ def _raise_mapped_error(code, status, message, **details):
         raise SkillError("AUTH_REQUIRED", msg, retry_command=login_retry_command(), **details)
     if stable in ("TaskNotOwned", "TaskNotStarted"):
         raise SkillError("INVOCATION_NOT_FOUND", msg, **details)
-    if stable in ("DesktopNotOwned",):
+    if stable in ("DesktopNotOwned", "OperationNotOwned"):
         raise SkillError("FORBIDDEN", msg, **details)
     if stable in ("DesktopNotReady", "no_active_cua_allocation"):
         raise SkillError("DESKTOP_NOT_BOUND", msg, **details)

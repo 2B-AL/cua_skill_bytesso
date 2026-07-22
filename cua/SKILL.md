@@ -1,6 +1,6 @@
 ---
 name: cua
-description: Use when the user wants to delegate one or more broad computer-use tasks to CUA through the ByteSSO Access Hub bare-metal environment, including web browsing, app use, file handling, multi-step desktop operation, starting work in a new CUA session, continuing work in an existing session context, allocating multiple CUA desktops, running independent tasks in parallel, progress watching, answering CUA questions, cancellation, or observing the cloud desktop state.
+description: Use when the user wants to delegate one or more broad computer-use tasks to CUA through the ByteSSO Access Hub bare-metal environment, including web browsing, app use, file handling, multi-step desktop operation, starting work in a new CUA session, continuing work in an existing session context, allocating or rebooting CUA desktops, running independent tasks in parallel, progress watching, answering CUA questions, cancellation, or observing the cloud desktop state.
 ---
 
 # CUA
@@ -50,7 +50,20 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    to set a local default desktop for later `observe` and `delegate` calls.
    Quota is enforced by the gateway.
 
-4. Choose single or parallel delegation:
+4. If the user explicitly asks to reboot a CUA desktop, run:
+
+   ```bash
+   python3 <skill_dir>/scripts/cua.py desktops reboot <desktop_id>
+   ```
+
+   Do not ask for confirmation. The command waits for the reboot operation and
+   broker, UIA, SPICE agent, and other readiness checks to succeed. Do not run
+   `delegate` on that desktop until the command returns success. If the wait
+   budget expires, run the `desktops operation <operation_id>` command from the
+   structured error's `next.command`; do not start a new task while the
+   operation is still running or after it fails.
+
+5. Choose single or parallel delegation:
 
    - Use one CUA for dependent steps or shared browser/app/session state.
    - Use multiple CUAs for independent subtasks whose results can be merged.
@@ -68,7 +81,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    `tasks watch --task-id ... --task-id ...` call to collect results before
    composing the final answer.
 
-5. If the user only asks for their CUA/cloud desktop link, call `observe` after
+6. If the user only asks for their CUA/cloud desktop link, call `observe` after
    auth is ready. Pass `--desktop-id` if the user or prior `desktops list`
    selected a specific desktop:
 
@@ -80,7 +93,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    Return the temporary desktop access URL from the command output. Do not ask
    the user to run `observe`.
 
-6. For real work, call `delegate` with the user's original objective or one
+7. For real work, call `delegate` with the user's original objective or one
    independent subtask. If a specific desktop was selected, pass `--desktop-id`.
    Omitting `--session-id` is the default and creates a new my-cua session. Use
    this default for new, independent work:
@@ -120,7 +133,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    values from `desktops list` so each subtask is bound to a different CUA
    instance.
 
-7. Track running tasks with task commands when multiple CUA tasks may be active:
+8. Track running tasks with task commands when multiple CUA tasks may be active:
 
    ```bash
    python3 <skill_dir>/scripts/cua.py tasks list
@@ -132,7 +145,7 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    wait budget; budgets above 60 seconds are split into multiple gateway calls.
    For a single task, `watch --last` remains a shortcut.
 
-8. Inspect `data.outcome` on single-task responses, or `outcome` on each item in
+9. Inspect `data.outcome` on single-task responses, or `outcome` on each item in
    `data.tasks` for `tasks watch`:
    - `completed`: use `result.text` from that response or task item as the
      authoritative final answer.
@@ -147,14 +160,15 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
    - `failed` or `cancelled`: report the terminal state and include useful
      `diagnostics.error` or `diagnostics.upstream_status` when present.
 
-9. Do not use local browser/search/tools to finish the delegated objective after
+10. Do not use local browser/search/tools to finish the delegated objective after
    sending it to CUA unless the user explicitly redirects you away from CUA.
 
 ## Commands
 
 - `auth status`, `auth login`, `auth logout`
 - `ping`
-- `desktops list`, `desktops allocate`, `desktops use`
+- `desktops list`, `desktops allocate`, `desktops use`, `desktops reboot`,
+  `desktops operation`
 - `tasks list`, `tasks watch`
 - `delegate`
 - `watch`

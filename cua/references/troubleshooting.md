@@ -16,6 +16,8 @@ Branch on `error.code`.
 | `FORBIDDEN` | the key is valid but not allowed for this action | tell the user they lack permission |
 | `DESKTOP_NOT_BOUND` | Access Hub has not allocated a CUA desktop for the user | open Access Hub resources/setup page and allocate or contact an admin |
 | `DESKTOP_BUSY` | the selected desktop already has an active run | recover/watch the active task or select another idle desktop; do not retry blindly |
+| `DESKTOP_REBOOT_IN_PROGRESS` | the reboot or guest readiness checks are still running | run `error.retry_command`; do not submit a new task on that desktop yet |
+| `DESKTOP_REBOOT_FAILED` or a guest readiness code | the reboot or a required component check failed | report the operation error and do not submit a new task on that desktop |
 | `CONFLICT` | another operation conflicts with the requested state transition | inspect `reason`, `upstream_code`, and `context` before deciding whether to retry |
 | `INVOCATION_NOT_FOUND` | wrong invocation id | use the id from `delegate` or run with `--last` |
 | `INVOCATION_NOT_WAITING_INPUT` | `answer` was sent when CUA was not asking | run `watch` first |
