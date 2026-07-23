@@ -27,7 +27,7 @@ Branch on `error.code`.
 | `MODEL_TIMEOUT` | the model provider timed out | inspect diagnostics and retry only when the operation is safe |
 | `DESKTOP_UNHEALTHY` | the allocated desktop or guest runtime is unhealthy | report the desktop and request id; do not treat it as an auth failure |
 | `SESSION_CLEANUP` | a prior session could not be cleaned up | report the task/run context and avoid creating a retry loop |
-| `RATE_LIMITED` | too many requests | wait, then retry |
+| `RATE_LIMITED` | Skill Gateway or the model provider rejected requests due to rate limits | inspect `source`; honor `retry_after_ms` when present, then retry |
 | `VALIDATION_ERROR` | bad local argument or wrong key format | fix the argument or login input |
 | `NETWORK` | cannot reach Access Hub or `/skill/manifest` / `/skill/tools/{tool}` | check VPN/network and endpoint overrides |
 | `UPSTREAM_PROTOCOL_ERROR` | an upstream returned malformed/non-JSON data or omitted a required field | collect request ID and inspect the named `source` |

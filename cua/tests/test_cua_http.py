@@ -89,6 +89,28 @@ class CuaHttpTests(unittest.TestCase):
         self.assertEqual(ctx.exception.extra["accepted"], "unknown")
         self.assertEqual(ctx.exception.extra["context"]["task_id"], "task-1")
 
+    def test_rate_limit_keeps_retry_after(self):
+        with self.assertRaises(SkillError) as ctx:
+            cua_http._tool_result(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "RATE_LIMITED",
+                        "message": "model provider rate limited the request",
+                        "source": "model_provider",
+                        "stage": "model_call",
+                        "accepted": True,
+                        "retryable": True,
+                        "retry_after_ms": 2500,
+                    },
+                },
+                tool_name="cua_get_task_result",
+            )
+
+        self.assertEqual(ctx.exception.code, "RATE_LIMITED")
+        self.assertEqual(ctx.exception.extra["retry_after_ms"], 2500)
+        self.assertEqual(ctx.exception.extra["source"], "model_provider")
+
     def test_unknown_upstream_code_is_not_exposed_as_public_code(self):
         with self.assertRaises(SkillError) as ctx:
             cua_http._raise_mapped_error(

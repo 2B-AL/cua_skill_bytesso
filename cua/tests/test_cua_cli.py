@@ -517,6 +517,84 @@ class CuaCliTests(unittest.TestCase):
         self.assertEqual(diagnostics["request_id"], "req-1")
         self.assertEqual(diagnostics["context"]["active_run_id"], "run-active")
 
+    def test_task_envelope_maps_terminal_model_rate_limit(self):
+        payload = {
+            "task": {"task_id": "task-1", "status": "failed", "mycua_run_id": "run-1"},
+            "upstream": {
+                "status": "failed",
+                "error": {
+                    "code": "model_rate_limited",
+                    "message": "model provider rate limited the request",
+                    "source": "model_provider",
+                    "stage": "model_execute",
+                    "accepted": True,
+                    "retryable": True,
+                    "upstream_status": 429,
+                    "upstream_code": "ModelAccountTpmRateLimitExceeded",
+                    "retry_after_ms": 3000,
+                },
+            },
+        }
+
+        envelope = cua._task_envelope(payload)
+        failure = envelope["result"]["error"]
+
+        self.assertEqual(envelope["outcome"], "failed")
+        self.assertEqual(failure["code"], "RATE_LIMITED")
+        self.assertEqual(failure["source"], "model_provider")
+        self.assertEqual(failure["stage"], "model_execute")
+        self.assertTrue(failure["accepted"])
+        self.assertTrue(failure["retryable"])
+        self.assertEqual(failure["upstream_status"], 429)
+        self.assertEqual(failure["upstream_code"], "ModelAccountTpmRateLimitExceeded")
+        self.assertEqual(failure["retry_after_ms"], 3000)
+        self.assertEqual(envelope["diagnostics"]["code"], "RATE_LIMITED")
+
+    def test_task_envelope_contains_unknown_terminal_internal_code(self):
+        payload = {
+            "task": {"task_id": "task-1", "status": "failed", "mycua_run_id": "run-1"},
+            "upstream": {
+                "status": "failed",
+                "error": {
+                    "code": "v6_new_internal_failure",
+                    "message": "request failed for https://internal.example?token=secret",
+                },
+            },
+        }
+
+        failure = cua._task_envelope(payload)["result"]["error"]
+
+        self.assertEqual(failure["code"], "UPSTREAM_FAILURE")
+        self.assertEqual(failure["upstream_code"], "v6_new_internal_failure")
+        self.assertEqual(failure["source"], "my_cua")
+        self.assertEqual(failure["stage"], "run_execute")
+        self.assertTrue(failure["accepted"])
+        self.assertFalse(failure["retryable"])
+        self.assertEqual(failure["message"], "CUA failed with an internal upstream error")
+        self.assertNotIn("secret", json.dumps(failure))
+
+    def test_task_envelope_does_not_treat_model_auth_as_bytesso_auth(self):
+        payload = {
+            "task": {"task_id": "task-1", "status": "failed", "mycua_run_id": "run-1"},
+            "upstream": {
+                "status": "failed",
+                "error": {
+                    "code": "model_auth_failed",
+                    "message": "model provider rejected the credential",
+                    "source": "model_provider",
+                    "upstream_status": 401,
+                    "upstream_code": "InvalidAuthentication",
+                },
+            },
+        }
+
+        failure = cua._task_envelope(payload)["result"]["error"]
+
+        self.assertEqual(failure["code"], "UPSTREAM_FAILURE")
+        self.assertEqual(failure["source"], "model_provider")
+        self.assertEqual(failure["upstream_code"], "InvalidAuthentication")
+        self.assertEqual(failure["message"], "CUA failed with an internal upstream error")
+
     def test_task_envelope_normalizes_artifacts(self):
         payload = {
             "task_id": "cua_task_1",

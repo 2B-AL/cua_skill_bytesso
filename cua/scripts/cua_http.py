@@ -342,6 +342,7 @@ def _error_details(envelope, error):
     for key in (
         "reason",
         "retryable",
+        "retry_after_ms",
         "upstream_code",
         "upstream_status",
         "error_schema_version",

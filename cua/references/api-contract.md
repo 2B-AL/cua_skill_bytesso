@@ -80,6 +80,12 @@ stderr before exiting 1. This preserves stdout consumers and lets stderr-only
 runners retain the real error. Consumers that merge both streams should
 de-duplicate identical complete JSON lines.
 
+A task that was accepted and later failed is still returned as a successful
+watch/result HTTP call. Its invocation envelope uses `outcome=failed` and puts
+the same stable error shape in `result.error`; diagnostic fields are also
+copied to `diagnostics` for compatibility. Unknown my-cua runtime codes become
+`UPSTREAM_FAILURE`, with the original safe code retained in `upstream_code`.
+
 ## Output Mapping
 
 The CLI maps gateway `task_id` to the existing `invocation_id` field so agents

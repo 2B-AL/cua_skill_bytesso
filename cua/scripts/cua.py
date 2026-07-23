@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 
 import cua_auth
-from cua_http import gateway_manifest, gateway_tool_call
+from cua_http import PUBLIC_ERROR_CODES, gateway_manifest, gateway_tool_call
 from cua_state import AuthState, SessionState
 from cua_util import SkillError, emit_error, emit_success, ext_for_mime, script_path
 
@@ -640,6 +640,9 @@ def _task_envelope(payload):
         "raw_status": status,
     }
     diagnostics.update(_error_diagnostics(payload, task, upstream))
+    failure = _terminal_failure(upstream) if outcome == "failed" else None
+    if failure:
+        diagnostics.update(failure)
     return {
         "invocation_id": task_id,
         "session_id": session_id,
@@ -647,6 +650,7 @@ def _task_envelope(payload):
         "result": {
             "text": _result_text(upstream) if outcome == "completed" else None,
             "artifacts": _artifacts(upstream),
+            "error": failure,
         },
         "input_request": _input_request(upstream) if outcome == "needs_input" else None,
         "progress": {
@@ -974,6 +978,12 @@ def _error_diagnostics(payload, task, upstream):
         "message": ("message",),
         "upstream_code": ("upstream_code",),
         "upstream_status": ("upstream_status",),
+        "source": ("source",),
+        "stage": ("stage",),
+        "accepted": ("accepted",),
+        "retryable": ("retryable",),
+        "retry_after_ms": ("retry_after_ms",),
+        "error_schema_version": ("error_schema_version",),
     }
     for output_key, aliases in field_aliases.items():
         for source in sources:
@@ -989,6 +999,177 @@ def _error_diagnostics(payload, task, upstream):
     if isinstance(context, dict) and context:
         diagnostics["context"] = context
     return diagnostics
+
+
+def _terminal_failure(upstream):
+    if not isinstance(upstream, dict):
+        return None
+    candidates = []
+    for parent in (
+        upstream,
+        upstream.get("result"),
+        upstream.get("run"),
+    ):
+        if not isinstance(parent, dict):
+            continue
+        error = parent.get("error")
+        if isinstance(error, dict):
+            candidates.append(error)
+        candidates.append(parent)
+
+    raw_code = None
+    message = None
+    details = {}
+    for candidate in candidates:
+        if raw_code is None:
+            raw_code = _first_string(candidate, "code", "error_code", "errorCode")
+            raw_error = candidate.get("error")
+            if raw_code is None and isinstance(raw_error, str) and _looks_like_error_code(raw_error):
+                raw_code = raw_error.strip()
+        if message is None:
+            message = _first_string(
+                candidate,
+                "message",
+                "error_message",
+                "errorMessage",
+                "reason",
+                "error_description",
+            )
+            raw_error = candidate.get("error")
+            if message is None and isinstance(raw_error, str) and not _looks_like_error_code(raw_error):
+                message = raw_error.strip()
+        for key in (
+            "error_schema_version",
+            "source",
+            "stage",
+            "accepted",
+            "retryable",
+            "reason",
+            "upstream_code",
+            "upstream_status",
+            "retry_after_ms",
+        ):
+            if key not in details and candidate.get(key) not in (None, ""):
+                details[key] = candidate.get(key)
+        if "context" not in details and isinstance(candidate.get("context"), dict):
+            details["context"] = candidate["context"]
+
+    public_code = _terminal_public_error_code(raw_code, details.get("upstream_status"))
+    if raw_code and public_code != raw_code and not details.get("upstream_code"):
+        details["upstream_code"] = raw_code
+    details["code"] = public_code
+    unsafe_internal_message = (
+        public_code == "UPSTREAM_FAILURE"
+        and raw_code not in (None, "", "UPSTREAM_FAILURE")
+    )
+    details["message"] = (
+        _terminal_error_message(public_code)
+        if unsafe_internal_message
+        else message or _terminal_error_message(public_code)
+    )
+    details.setdefault("reason", details["message"])
+    details.setdefault("error_schema_version", "cua.error.v1")
+    details.setdefault("source", _terminal_error_source(public_code, raw_code, details.get("upstream_code")))
+    details.setdefault("stage", _terminal_error_stage(details["source"]))
+    details.setdefault("accepted", True)
+    details.setdefault("retryable", public_code in {
+        "RATE_LIMITED",
+        "MODEL_TIMEOUT",
+        "UPSTREAM_TIMEOUT",
+        "CUA_BACKEND_UNAVAILABLE",
+    })
+    return details
+
+
+def _terminal_public_error_code(raw_code, upstream_status):
+    normalized = str(raw_code or "").strip()
+    lower = normalized.lower()
+    aliases = {
+        "active_run_conflict": "DESKTOP_BUSY",
+        "desktop_busy": "DESKTOP_BUSY",
+        "model_timeout": "MODEL_TIMEOUT",
+        "provider_timeout": "MODEL_TIMEOUT",
+        "llm_timeout": "MODEL_TIMEOUT",
+        "model_rate_limited": "RATE_LIMITED",
+        "provider_rate_limited": "RATE_LIMITED",
+        "rate_limited": "RATE_LIMITED",
+        "ratelimited": "RATE_LIMITED",
+        "model_auth_failed": "UPSTREAM_FAILURE",
+        "provider_request_failed": "UPSTREAM_FAILURE",
+        "provider_response_invalid": "UPSTREAM_FAILURE",
+        "provider_stream_failed": "UPSTREAM_FAILURE",
+        "provider_pool_exhausted": "UPSTREAM_FAILURE",
+        "desktop_unhealthy": "DESKTOP_UNHEALTHY",
+        "guest_unhealthy": "DESKTOP_UNHEALTHY",
+        "session_cleanup": "SESSION_CLEANUP",
+        "session_cleanup_failed": "SESSION_CLEANUP",
+        "upstream_timeout": "UPSTREAM_TIMEOUT",
+        "upstreamtimeout": "UPSTREAM_TIMEOUT",
+        "invalidaccesshubresponse": "UPSTREAM_PROTOCOL_ERROR",
+        "invalidmycuaresponse": "UPSTREAM_PROTOCOL_ERROR",
+        "upstream_protocol_error": "UPSTREAM_PROTOCOL_ERROR",
+    }
+    if normalized in PUBLIC_ERROR_CODES:
+        return normalized
+    if lower in aliases:
+        return aliases[lower]
+    try:
+        status = int(upstream_status) if upstream_status is not None else None
+    except (TypeError, ValueError):
+        status = None
+    status_codes = {
+        400: "VALIDATION_ERROR",
+        401: "AUTH_REQUIRED",
+        403: "FORBIDDEN",
+        404: "INVOCATION_NOT_FOUND",
+        409: "CONFLICT",
+        429: "RATE_LIMITED",
+        502: "CUA_BACKEND_UNAVAILABLE",
+        503: "CUA_BACKEND_UNAVAILABLE",
+        504: "UPSTREAM_TIMEOUT",
+    }
+    return status_codes.get(status, "UPSTREAM_FAILURE")
+
+
+def _terminal_error_source(public_code, raw_code, upstream_code):
+    signal = " ".join(str(value or "").lower() for value in (raw_code, upstream_code))
+    if public_code == "MODEL_TIMEOUT" or (
+        public_code == "RATE_LIMITED"
+        and any(fragment in signal for fragment in (
+            "model",
+            "provider",
+            "ratelimit",
+            "rate_limit",
+            "too_many_requests",
+            "toomanyrequests",
+        ))
+    ):
+        return "model_provider"
+    if public_code in ("DESKTOP_BUSY", "DESKTOP_UNHEALTHY"):
+        return "desktop_runtime"
+    return "my_cua"
+
+
+def _terminal_error_stage(source):
+    if source == "model_provider":
+        return "model_execute"
+    if source == "desktop_runtime":
+        return "desktop_execute"
+    return "run_execute"
+
+
+def _terminal_error_message(code):
+    messages = {
+        "RATE_LIMITED": "model provider rate limited the request",
+        "MODEL_TIMEOUT": "model provider request timed out",
+        "UPSTREAM_FAILURE": "CUA failed with an internal upstream error",
+    }
+    return messages.get(code, "CUA could not complete the request")
+
+
+def _looks_like_error_code(value):
+    text = str(value or "").strip()
+    return bool(text and " " not in text and ("\n" not in text) and ("_" in text or text.isupper()))
 
 
 def _first_value(source, *keys):
