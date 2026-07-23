@@ -1,3 +1,5 @@
+import io
+import json
 import sys
 import unittest
 from argparse import Namespace
@@ -9,6 +11,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cua  # noqa: E402
+import cua_util  # noqa: E402
 
 
 class CuaCliTests(unittest.TestCase):
@@ -32,6 +35,33 @@ class CuaCliTests(unittest.TestCase):
 
         def remember_desktops(self, desktops):
             self.desktops = desktops
+
+    def test_emit_error_mirrors_structured_json_to_stderr(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        error = cua_util.SkillError(
+            "UPSTREAM_TIMEOUT",
+            "my-cua request timed out",
+            source="my_cua",
+            stage="run_create",
+            accepted="unknown",
+            request_id="req-1",
+        )
+
+        with (
+            mock.patch.object(sys, "stdout", stdout),
+            mock.patch.object(sys, "stderr", stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            cua_util.emit_error("delegate", error)
+
+        self.assertEqual(raised.exception.code, 1)
+        self.assertEqual(stdout.getvalue(), stderr.getvalue())
+        payload = json.loads(stderr.getvalue())
+        self.assertEqual(payload["error"]["code"], "UPSTREAM_TIMEOUT")
+        self.assertEqual(payload["error"]["stage"], "run_create")
+        self.assertEqual(payload["error"]["accepted"], "unknown")
+        self.assertIn("Do not submit", payload["next"]["agent_hint"])
 
     def test_desktops_allocate_calls_gateway_tool(self):
         session = self.Session()
@@ -132,7 +162,9 @@ class CuaCliTests(unittest.TestCase):
                     session=self.Session(),
                 )
 
-        self.assertEqual(raised.exception.code, "UIANotReady")
+        self.assertEqual(raised.exception.code, "DESKTOP_UNHEALTHY")
+        self.assertEqual(raised.exception.extra["upstream_code"], "UIANotReady")
+        self.assertEqual(raised.exception.extra["source"], "desktop_runtime")
         self.assertEqual(raised.exception.extra["operation"]["status"], "failed")
 
     def test_desktops_reboot_parser_has_no_confirmation(self):
@@ -254,6 +286,31 @@ class CuaCliTests(unittest.TestCase):
 
         self.assertEqual(result["data"]["invocation_id"], "task-1")
         self.assertEqual(call.call_args.args[4], {"input": "do work", "desktop_id": "vm-2"})
+
+    def test_auto_delegate_with_only_busy_desktops_uses_stable_error_code(self):
+        session = self.Session()
+        with (
+            mock.patch.object(cua.cua_auth, "ensure_bearer_key", return_value="token"),
+            mock.patch.object(
+                cua,
+                "gateway_tool_call",
+                return_value={
+                    "quota": {"max_active_cuas": 1, "active_count": 1},
+                    "desktops": [{"desktop_id": "vm-1", "busy": True}],
+                },
+            ),
+        ):
+            with self.assertRaises(cua.SkillError) as raised:
+                cua._resolve_delegate_desktop(
+                    Namespace(desktop_id=None, auto=True),
+                    state=object(),
+                    session=session,
+                    access_hub="http://hub",
+                    gateway_url="http://gateway",
+                )
+
+        self.assertEqual(raised.exception.code, "DESKTOP_BUSY")
+        self.assertEqual(raised.exception.extra["upstream_code"], "NO_IDLE_DESKTOP")
 
     def test_tasks_list_calls_gateway_tool(self):
         session = self.Session()

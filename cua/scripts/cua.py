@@ -301,9 +301,17 @@ def _require_successful_desktop_reboot(operation):
             retry_command=f"python3 {script_path()} desktops operation {operation_id}",
         )
     error = operation.get("error") if isinstance(operation.get("error"), dict) else {}
+    upstream_code = str(error.get("code") or "DesktopRebootFailed")
+    public_code = "DESKTOP_REBOOT_FAILED"
+    if upstream_code in ("BrokerNotReady", "UIANotReady", "SpiceAgentNotReady"):
+        public_code = "DESKTOP_UNHEALTHY"
     raise SkillError(
-        str(error.get("code") or "DESKTOP_REBOOT_FAILED"),
+        public_code,
         error.get("message") or "Desktop reboot or readiness checks failed.",
+        upstream_code=upstream_code,
+        source="desktop_runtime",
+        stage="desktop_reboot",
+        accepted=True,
         operation=operation,
     )
 
@@ -517,8 +525,12 @@ def _resolve_delegate_desktop(args, state, session, access_hub, gateway_url):
             session.remember_desktops([desktop])
             return desktop.get("desktop_id")
     raise SkillError(
-        "NO_IDLE_DESKTOP",
+        "DESKTOP_BUSY",
         "All allocated CUA desktops are busy and quota is full. Wait for a task to finish or pass --desktop-id explicitly.",
+        upstream_code="NO_IDLE_DESKTOP",
+        source="skill_gateway",
+        stage="desktop_resolve",
+        accepted=False,
         quota=quota,
     )
 
