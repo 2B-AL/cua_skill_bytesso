@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 # backend hiccups, rate limits, and local network blips. The CLI keeps polling
 # on these instead of failing a whole task on a single 504.
 RETRYABLE_ERROR_CODES = frozenset(
-    {"GATEWAY_TIMEOUT", "CUA_BACKEND_UNAVAILABLE", "RATE_LIMITED", "NETWORK"}
+    {"GATEWAY_TIMEOUT", "UPSTREAM_TIMEOUT", "CUA_BACKEND_UNAVAILABLE", "RATE_LIMITED", "NETWORK"}
 )
 
 
@@ -47,17 +47,25 @@ def emit_success(action, data=None):
 
 
 def emit_error(action, error):
-    """Print a single-line JSON error envelope and exit non-zero."""
+    """Print a single-line JSON error envelope to both streams and exit non-zero."""
     if isinstance(error, SkillError):
         body = {"code": error.code, "message": error.message}
         body.update(error.extra)
     else:
         body = {"code": "INTERNAL", "message": str(error)}
+    body.setdefault("error_schema_version", "cua.error.v1")
+    body.setdefault("source", "cli")
+    body.setdefault("stage", "local_validation")
+    body.setdefault("accepted", False)
     payload = {"ok": False, "action": action, "error": body}
     next_hint = _next_for_error(body)
     if next_hint:
         payload["next"] = next_hint
-    _print(payload)
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    sys.stdout.write(line)
+    sys.stdout.flush()
+    sys.stderr.write(line)
+    sys.stderr.flush()
     sys.exit(1)
 
 
@@ -92,10 +100,15 @@ def _next_for_error(body):
             "until it succeeds.",
         }
     if code in RETRYABLE_ERROR_CODES:
+        if body.get("accepted") == "unknown":
+            return {
+                "agent_hint": "The request timed out after it may have reached the backend. "
+                "Do not submit the same state-changing request blindly. Reconcile with tasks list/watch "
+                "or the relevant desktop operation first; use request_id when escalating.",
+            }
         return {
-            "agent_hint": "Transient gateway/backend timeout — this is not a real failure. "
-            "The task is likely still running. Just re-run the same command (for a long task, "
-            "prefer `watch --last` or `result --last`).",
+            "agent_hint": "Transient gateway/backend failure. Retry the read operation; for an existing "
+            "task, prefer `watch --last` or `result --last`.",
         }
     return None
 

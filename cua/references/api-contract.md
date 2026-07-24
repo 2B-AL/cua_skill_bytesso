@@ -49,12 +49,42 @@ Failure:
   "ok": false,
   "tool": "cua_run_task",
   "error": {
-    "code": "Unauthorized",
-    "message": "invalid bearer token",
-    "retryable": false
+    "error_schema_version": "cua.error.v1",
+    "code": "UPSTREAM_TIMEOUT",
+    "message": "my_cua request timed out",
+    "source": "my_cua",
+    "stage": "run_create",
+    "accepted": "unknown",
+    "request_id": "req_...",
+    "upstream_code": "UpstreamTimeout",
+    "upstream_status": 504,
+    "retryable": true,
+    "reason": "deadline_exceeded",
+    "context": {
+      "desktop_id": "desk_...",
+      "session_id": "session_...",
+      "task_id": "task_..."
+    }
   }
 }
 ```
+
+`code` is the stable public code. `upstream_code` is diagnostic only and may
+change as internal services evolve. `source` identifies the failing service
+boundary, `stage` identifies the workflow step, and `accepted` is `false`,
+`true`, or `"unknown"`. Do not blindly replay a state-changing request when
+`accepted` is `"unknown"`; reconcile task or desktop operation state first.
+
+Failed CLI commands write the same single-line JSON envelope to stdout and
+stderr before exiting 1. This preserves stdout consumers and lets stderr-only
+runners retain the real error. Consumers that merge both streams should
+de-duplicate identical complete JSON lines.
+
+A task that was accepted and later failed is still returned as a successful
+watch/result HTTP call. Its invocation envelope uses `outcome=failed` and puts
+the same stable error shape in `result.error`; diagnostic fields are also
+copied to `diagnostics` for compatibility. Unknown my-cua runtime codes become
+`UPSTREAM_FAILURE`, with the original safe code retained in `upstream_code`.
 
 ## Output Mapping
 

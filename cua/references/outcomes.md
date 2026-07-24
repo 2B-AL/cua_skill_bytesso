@@ -23,7 +23,18 @@ task should continue in that context; omit it for a new session.
         "path": "C:/Users/user/Desktop/result.md",
         "text": "small text content when available"
       }
-    ]
+    ],
+    "error": {
+      "code": "RATE_LIMITED",
+      "message": "model provider rate limited the request",
+      "source": "model_provider",
+      "stage": "model_execute",
+      "accepted": true,
+      "retryable": true,
+      "upstream_status": 429,
+      "upstream_code": "ModelAccountTpmRateLimitExceeded",
+      "retry_after_ms": 3000
+    }
   },
   "input_request": { "question": "...", "choices": [] },
   "progress": { "summary": "...", "step_count": 2, "updated_at": "..." },
@@ -45,6 +56,8 @@ task should continue in that context; omit it for a new session.
 ## Rules
 
 - `result.text` is authoritative only when `outcome == completed`.
+- `result.error` is non-null only when `outcome == failed`. Branch on its
+  stable `code`; use `upstream_code` only for diagnostics.
 - `result.artifacts` is a normalized artifact list. Use `type` to decide how to
   present it:
   - `text`: may include inline `text` when the upstream result provides small
